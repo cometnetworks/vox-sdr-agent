@@ -32,15 +32,26 @@ npm run lint
 
 ## Convex
 
-Convex todavia no esta conectado a un deployment cloud. Cuando exista la cuenta/proyecto:
+Proyecto cloud creado:
+
+- Team: `zcodex`
+- Project: `vox-sdr-agent`
+- Dashboard: `https://dashboard.convex.dev/t/zcodex/vox-sdr-agent`
+- Dev deployment: `brainy-eagle-455`
+
+Variables locales guardadas en `.env.local` por el CLI:
+
+- `CONVEX_DEPLOYMENT`
+- `NEXT_PUBLIC_CONVEX_URL`
+- `NEXT_PUBLIC_CONVEX_SITE_URL`
+
+Para empujar cambios y regenerar tipos:
 
 ```bash
 npx convex dev
 ```
 
-Eso generara `convex/_generated/` y permitira desplegar functions, schema y webhooks.
-
-Mientras Convex no este configurado, el dashboard compila con datos seed y `convex/` queda excluido del typecheck de Next.
+Eso mantiene sincronizadas las functions, schema y webhooks.
 
 ## Primer Piloto
 
@@ -72,4 +83,3 @@ No se hacen llamadas reales a prospectos hasta validar internamente:
 Este folder ya tiene un repo Git local. Nombre recomendado para remoto:
 
 `vox-sdr-agent`
-
