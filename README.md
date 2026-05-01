@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vox SDR IA Agent
 
-## Getting Started
+Dashboard y backend cloud-first para el ejecutivo SDR IA de Vox Media Agency.
 
-First, run the development server:
+## Objetivo
+
+El agente corre en la nube, procesa prospectos, genera research, detecta triggers, prioriza cuentas, redacta mensajes estilo Vox, entrega reporte diario por Telegram y registra todo en una UI operativa.
+
+## Stack
+
+- Next.js + TypeScript para dashboard.
+- Convex para base de datos, jobs, webhooks y estado.
+- OpenAI para research, scoring, insights, outreach y reportes.
+- Resend para envio de emails con `replyTo` a Miguel.
+- Telegram Bot para reportes y aprobaciones.
+- ElevenLabs Agents + Twilio para voz, solo despues de pruebas internas.
+
+## Comandos
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run build
+npm run lint
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup Local
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Copia `.env.example` a `.env.local`.
+2. Configura las llaves necesarias.
+3. Ejecuta `npm run dev`.
+4. Abre `http://localhost:3000`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Convex
 
-## Learn More
+Convex todavia no esta conectado a un deployment cloud. Cuando exista la cuenta/proyecto:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npx convex dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Eso generara `convex/_generated/` y permitira desplegar functions, schema y webhooks.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Mientras Convex no este configurado, el dashboard compila con datos seed y `convex/` queda excluido del typecheck de Next.
 
-## Deploy on Vercel
+## Primer Piloto
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+La base inicial usa estas columnas:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```csv
+Nombre,Email,Empresa,Cargo,Celular,Linkedin
+```
+
+Archivo template:
+
+`src/data/prospects-template.csv`
+
+## Regla De Voz
+
+No se hacen llamadas reales a prospectos hasta validar internamente:
+
+- Twilio trial.
+- Celular de Miguel verificado.
+- ElevenLabs Agent conectado.
+- Llamada interna exitosa.
+- Transcripcion y resumen.
+- Registro en Convex.
+- Alerta en Telegram.
+- Aprobacion manual.
+
+## GitHub
+
+Este folder ya tiene un repo Git local. Nombre recomendado para remoto:
+
+`vox-sdr-agent`
+
