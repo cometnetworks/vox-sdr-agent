@@ -166,7 +166,7 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
     };
 
     try {
-      result = await ctx.runAction(api.scoring.scoreNewProspects, { limit: 10 });
+      result = await ctx.runAction(api.scoring.scoreNewProspects, { limit: 3 });
     } catch (error) {
       const summary = await ctx.runQuery(api.prospects.summary);
       const message = error instanceof Error ? error.message : String(error);
@@ -211,7 +211,7 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
             `${index + 1}. ${item.company} - ${item.name}\nScore: ${item.score}\nTier: ${item.tier}\nOferta: ${item.offer}`,
         ),
       "",
-      "Ya genere drafts en cola de aprobacion. Usa /reporte o /hot para revisar el estado.",
+      "Ya genere drafts en cola de aprobacion. Si quieres continuar por lotes, dime: sigue con otros 3.",
     ].join("\n");
   }
 

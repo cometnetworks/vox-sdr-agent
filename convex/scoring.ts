@@ -1,7 +1,11 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
-import { extractJsonObject, generateStrategyForProspect } from "./lib/aiClient";
+import {
+  createFallbackStrategy,
+  extractJsonObject,
+  generateStrategyForProspect,
+} from "./lib/aiClient";
 import type { RegisteredAction } from "convex/server";
 
 type ScoringResult = {
@@ -31,16 +35,26 @@ export const scoreNewProspects: RegisteredAction<
     const results = [];
 
     for (const prospect of prospects) {
-      const rawStrategy = await generateStrategyForProspect({
-        name: prospect.name,
-        email: prospect.email,
-        company: prospect.company,
-        title: prospect.title,
-        phone: prospect.phone,
-        linkedin: prospect.linkedin,
-      });
+      let strategy;
 
-      const strategy = extractJsonObject(rawStrategy);
+      try {
+        const rawStrategy = await generateStrategyForProspect({
+          name: prospect.name,
+          email: prospect.email,
+          company: prospect.company,
+          title: prospect.title,
+          phone: prospect.phone,
+          linkedin: prospect.linkedin,
+        });
+
+        strategy = extractJsonObject(rawStrategy);
+      } catch {
+        strategy = createFallbackStrategy({
+          name: prospect.name,
+          company: prospect.company,
+          title: prospect.title,
+        });
+      }
 
       await ctx.runMutation(api.prospects.saveStrategy, {
         prospectId: prospect._id,
