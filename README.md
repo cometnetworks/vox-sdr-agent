@@ -10,7 +10,7 @@ El agente corre en la nube, procesa prospectos, genera research, detecta trigger
 
 - Next.js + TypeScript para dashboard.
 - Convex para base de datos, jobs, webhooks y estado.
-- OpenAI para research, scoring, insights, outreach y reportes.
+- OpenRouter para pruebas de IA; OpenAI directo para produccion.
 - Resend para envio de emails con `replyTo` a Miguel.
 - Telegram Bot para reportes y aprobaciones.
 - ElevenLabs Agents + Twilio para voz, solo despues de pruebas internas.
@@ -52,6 +52,15 @@ npx convex dev
 ```
 
 Eso mantiene sincronizadas las functions, schema y webhooks.
+
+## IA
+
+Las actions de Convex usan OpenRouter si existe `OPENROUTER_API_KEY`.
+
+Para produccion real, quitar `OPENROUTER_API_KEY` del entorno de Convex y configurar:
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
 
 ## Primer Piloto
 
