@@ -154,7 +154,7 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
   }
 
   if (wantsScoring(text, command)) {
-    const result: {
+    let result: {
       processed: number;
       results: Array<{
         company: string;
@@ -163,7 +163,32 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
         tier: string;
         offer: string;
       }>;
-    } = await ctx.runAction(api.scoring.scoreNewProspects, { limit: 10 });
+    };
+
+    try {
+      result = await ctx.runAction(api.scoring.scoreNewProspects, { limit: 10 });
+    } catch (error) {
+      const summary = await ctx.runQuery(api.prospects.summary);
+      const message = error instanceof Error ? error.message : String(error);
+      const isCreditIssue =
+        message.includes("402") ||
+        message.toLowerCase().includes("insufficient credits") ||
+        message.toLowerCase().includes("requires more credits");
+
+      return [
+        "Scoring detenido",
+        "",
+        `Progreso guardado: ${summary.hot + summary.warm + summary.cold} de ${summary.totalProspects} prospectos con score.`,
+        `Pendientes sin score: ${summary.newProspects}`,
+        `Drafts pendientes: ${summary.pendingDrafts}`,
+        "",
+        isCreditIssue
+          ? "Motivo: OpenRouter no tiene creditos suficientes para continuar."
+          : "Motivo: hubo un error procesando una respuesta del modelo.",
+        "",
+        "No se perdio lo procesado. Cuando agreguemos creditos o cambiemos a OpenAI, puedo continuar solo con los pendientes.",
+      ].join("\n");
+    }
 
     if (result.processed === 0) {
       return [
