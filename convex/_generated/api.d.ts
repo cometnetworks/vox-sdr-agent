@@ -11,7 +11,10 @@
 import type * as ai from "../ai.js";
 import type * as emails from "../emails.js";
 import type * as http from "../http.js";
+import type * as lib_aiClient from "../lib/aiClient.js";
 import type * as prospects from "../prospects.js";
+import type * as scoring from "../scoring.js";
+import type * as telegram from "../telegram.js";
 
 import type {
   ApiFromModules,
@@ -23,7 +26,10 @@ declare const fullApi: ApiFromModules<{
   ai: typeof ai;
   emails: typeof emails;
   http: typeof http;
+  "lib/aiClient": typeof lib_aiClient;
   prospects: typeof prospects;
+  scoring: typeof scoring;
+  telegram: typeof telegram;
 }>;
 
 /**
