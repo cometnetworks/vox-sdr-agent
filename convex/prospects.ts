@@ -8,6 +8,19 @@ export const list = query({
   },
 });
 
+export const listNew = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const prospects = await ctx.db.query("prospects").collect();
+
+    return prospects
+      .filter((prospect) => prospect.status === "new")
+      .slice(0, args.limit ?? 10);
+  },
+});
+
 export const summary = query({
   args: {},
   handler: async (ctx) => {
@@ -140,6 +153,64 @@ export const updateScore = mutation({
       recommendedOffer: args.recommendedOffer,
       status: "scored",
       updatedAt: Date.now(),
+    });
+  },
+});
+
+export const saveStrategy = mutation({
+  args: {
+    prospectId: v.id("prospects"),
+    score: v.number(),
+    tier: v.string(),
+    trigger: v.string(),
+    painPoint: v.string(),
+    voxAngle: v.string(),
+    recommendedOffer: v.string(),
+    recommendedChannel: v.string(),
+    emailSubject: v.string(),
+    emailBody: v.string(),
+    brief: v.string(),
+    nextStep: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    await ctx.db.patch(args.prospectId, {
+      score: args.score,
+      tier: args.tier,
+      recommendedChannel: args.recommendedChannel,
+      recommendedOffer: args.recommendedOffer,
+      status: "scored",
+      updatedAt: now,
+    });
+
+    await ctx.db.insert("triggers", {
+      prospectId: args.prospectId,
+      triggerType: "ai_detected",
+      triggerDescription: args.trigger,
+      intensity: args.tier,
+      opportunityHypothesis: args.nextStep,
+      createdAt: now,
+    });
+
+    await ctx.db.insert("insights", {
+      prospectId: args.prospectId,
+      painPoint: args.painPoint,
+      voxAngle: args.voxAngle,
+      offerRecommendation: args.recommendedOffer,
+      commercialNarrative: args.brief,
+      createdAt: now,
+    });
+
+    await ctx.db.insert("outreachDrafts", {
+      prospectId: args.prospectId,
+      channel: args.recommendedChannel,
+      subject: args.emailSubject,
+      body: args.emailBody,
+      toneVersion: "vox_miguel_v1",
+      status: "pending_approval",
+      createdAt: now,
+      updatedAt: now,
     });
   },
 });

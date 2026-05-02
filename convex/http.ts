@@ -62,8 +62,30 @@ function getTelegramCommand(update: TelegramUpdate) {
   return withoutBotSuffix;
 }
 
+function getTelegramText(update: TelegramUpdate) {
+  return update.message?.text?.trim() || "";
+}
+
+function wantsScoring(text: string, command: string) {
+  const normalized = text.toLowerCase();
+
+  return (
+    command === "scoring" ||
+    command === "score" ||
+    command === "analiza" ||
+    normalized.includes("scoring") ||
+    normalized.includes("score") ||
+    normalized.includes("insight") ||
+    normalized.includes("prioriza") ||
+    normalized.includes("priorizar") ||
+    normalized.includes("analiza los prospectos") ||
+    normalized.includes("analizar los prospectos")
+  );
+}
+
 async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[0]>[0], update: TelegramUpdate) {
   const command = getTelegramCommand(update);
+  const text = getTelegramText(update);
   const firstName = update.message?.from?.first_name || "Miguel";
 
   if (command === "start") {
@@ -75,6 +97,7 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
       "Comandos disponibles:",
       "/reporte - ver resumen del dia",
       "/hot - ver cuentas prioritarias",
+      "/scoring - correr scoring e insights",
       "/ayuda - ver comandos",
       "",
       "Regla activa: no envio emails ni hago llamadas reales sin aprobacion.",
@@ -102,7 +125,14 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
   }
 
   if (command === "hot") {
-    const hotProspects = await ctx.runQuery(api.prospects.hot);
+    const hotProspects: Array<{
+      name: string;
+      company: string;
+      title: string;
+      score: number;
+      recommendedOffer: string;
+      recommendedChannel: string;
+    }> = await ctx.runQuery(api.prospects.hot);
 
     if (hotProspects.length === 0) {
       return [
@@ -123,21 +153,57 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
     ].join("\n");
   }
 
+  if (wantsScoring(text, command)) {
+    const result: {
+      processed: number;
+      results: Array<{
+        company: string;
+        name: string;
+        score: number;
+        tier: string;
+        offer: string;
+      }>;
+    } = await ctx.runAction(api.scoring.scoreNewProspects, { limit: 10 });
+
+    if (result.processed === 0) {
+      return [
+        "Scoring e insights",
+        "",
+        "No encontre prospectos nuevos pendientes de scoring.",
+        "Puedes revisar /reporte o /hot para ver el estado actual.",
+      ].join("\n");
+    }
+
+    return [
+      "Scoring e insights completados",
+      "",
+      `Prospectos procesados: ${result.processed}`,
+      "",
+      ...result.results
+        .slice(0, 5)
+        .map(
+          (item, index) =>
+            `${index + 1}. ${item.company} - ${item.name}\nScore: ${item.score}\nTier: ${item.tier}\nOferta: ${item.offer}`,
+        ),
+      "",
+      "Ya genere drafts en cola de aprobacion. Usa /reporte o /hot para revisar el estado.",
+    ].join("\n");
+  }
+
   if (command === "ayuda" || command === "help") {
     return [
       "Comandos:",
       "/start - iniciar bot",
       "/reporte - resumen del dia",
       "/hot - cuentas prioritarias",
+      "/scoring - correr scoring e insights",
       "/ayuda - comandos disponibles",
+      "",
+      "Tambien puedes hablarme normal. Ejemplo: realiza el scoring e insight de los prospectos.",
     ].join("\n");
   }
 
-  return [
-    "Recibi tu mensaje.",
-    "",
-    "Por ahora estoy en modo setup. Usa /reporte, /hot o /ayuda.",
-  ].join("\n");
+  return await ctx.runAction(api.telegram.answerMessage, { message: text });
 }
 
 http.route({
