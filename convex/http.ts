@@ -1,5 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
+import { api } from "./_generated/api";
 
 const http = httpRouter();
 
@@ -49,7 +50,7 @@ function isAllowedChat(chatId: number) {
   return String(chatId) === allowedChatId;
 }
 
-function buildTelegramReply(update: TelegramUpdate) {
+async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[0]>[0], update: TelegramUpdate) {
   const text = update.message?.text?.trim().toLowerCase() || "";
   const firstName = update.message?.from?.first_name || "Miguel";
 
@@ -69,24 +70,44 @@ function buildTelegramReply(update: TelegramUpdate) {
   }
 
   if (text === "/reporte") {
+    const summary = await ctx.runQuery(api.prospects.summary);
+
     return [
       "Reporte SDR IA",
       "",
       "Estado: conectado",
-      "Prospectos base: pendiente de importar CSV",
-      "Emails enviados: 0",
-      "Llamadas reales: 0",
+      `Prospectos base: ${summary.totalProspects}`,
+      `Nuevos sin score: ${summary.newProspects}`,
+      `Hot: ${summary.hot}`,
+      `Warm: ${summary.warm}`,
+      `Cold: ${summary.cold}`,
+      `Drafts pendientes: ${summary.pendingDrafts}`,
+      `Emails enviados: ${summary.sentDrafts}`,
+      `Llamadas reales: ${summary.realCalls}`,
       "",
-      "Siguiente paso: importar los 10 prospectos y generar drafts para aprobacion.",
+      "Siguiente paso: ejecutar scoring e insights para priorizar cuentas.",
     ].join("\n");
   }
 
   if (text === "/hot") {
+    const hotProspects = await ctx.runQuery(api.prospects.hot);
+
+    if (hotProspects.length === 0) {
+      return [
+        "Cuentas Hot",
+        "",
+        "Todavia no hay cuentas Hot porque los prospectos importados aun no tienen scoring.",
+        "Siguiente paso: ejecutar Research + Scoring Agent sobre la base inicial.",
+      ].join("\n");
+    }
+
     return [
       "Cuentas Hot",
       "",
-      "Todavia no hay cuentas Hot reales porque falta importar la base inicial.",
-      "Cuando importemos el CSV, aqui veras empresa, contacto, score y accion recomendada.",
+      ...hotProspects.map(
+        (prospect, index) =>
+          `${index + 1}. ${prospect.company} - ${prospect.name}\nScore: ${prospect.score}\nOferta: ${prospect.recommendedOffer}\nCanal: ${prospect.recommendedChannel}`,
+      ),
     ].join("\n");
   }
 
@@ -120,7 +141,7 @@ http.route({
 http.route({
   path: "/telegram/webhook",
   method: "POST",
-  handler: httpAction(async (_ctx, request) => {
+  handler: httpAction(async (ctx, request) => {
     const update = (await request.json()) as TelegramUpdate;
     const chatId = update.message?.chat.id;
 
@@ -136,7 +157,7 @@ http.route({
       });
     }
 
-    await sendTelegramMessage(chatId, buildTelegramReply(update));
+    await sendTelegramMessage(chatId, await buildTelegramReply(ctx, update));
 
     return new Response(JSON.stringify({ ok: true, received: Boolean(update) }), {
       headers: { "content-type": "application/json" },

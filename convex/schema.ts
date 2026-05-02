@@ -16,7 +16,9 @@ export default defineSchema({
     recommendedOffer: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_status", ["status"]),
+  })
+    .index("by_status", ["status"])
+    .index("by_email", ["email"]),
 
   accountResearch: defineTable({
     prospectId: v.id("prospects"),
@@ -95,4 +97,3 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_prospect", ["prospectId"]),
 });
-
