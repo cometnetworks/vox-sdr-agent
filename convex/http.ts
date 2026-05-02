@@ -50,11 +50,23 @@ function isAllowedChat(chatId: number) {
   return String(chatId) === allowedChatId;
 }
 
+function getTelegramCommand(update: TelegramUpdate) {
+  const rawText = update.message?.text?.trim().toLowerCase() || "";
+  const firstToken = rawText.split(/\s+/)[0] || "";
+  const withoutBotSuffix = firstToken.split("@")[0];
+
+  if (withoutBotSuffix.startsWith("/")) {
+    return withoutBotSuffix.slice(1);
+  }
+
+  return withoutBotSuffix;
+}
+
 async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[0]>[0], update: TelegramUpdate) {
-  const text = update.message?.text?.trim().toLowerCase() || "";
+  const command = getTelegramCommand(update);
   const firstName = update.message?.from?.first_name || "Miguel";
 
-  if (text === "/start") {
+  if (command === "start") {
     return [
       `Hola ${firstName}. Soy el SDR IA de Vox Media Agency.`,
       "",
@@ -69,7 +81,7 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
     ].join("\n");
   }
 
-  if (text === "/reporte") {
+  if (command === "reporte") {
     const summary = await ctx.runQuery(api.prospects.summary);
 
     return [
@@ -89,7 +101,7 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
     ].join("\n");
   }
 
-  if (text === "/hot") {
+  if (command === "hot") {
     const hotProspects = await ctx.runQuery(api.prospects.hot);
 
     if (hotProspects.length === 0) {
@@ -111,7 +123,7 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
     ].join("\n");
   }
 
-  if (text === "/ayuda" || text === "ayuda") {
+  if (command === "ayuda" || command === "help") {
     return [
       "Comandos:",
       "/start - iniciar bot",
