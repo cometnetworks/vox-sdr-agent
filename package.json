@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "elevenlabs:check": "node scripts/check-elevenlabs-key.mjs",
+    "elevenlabs:sync:max": "node scripts/sync-elevenlabs-max.mjs",
+    "elevenlabs:sync:max:apply": "node scripts/sync-elevenlabs-max.mjs --apply"
   },
   "dependencies": {
     "@elevenlabs/react": "^1.6.0",
