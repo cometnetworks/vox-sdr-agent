@@ -5,12 +5,12 @@ import {
   CheckCircle2,
   Clock3,
   Mail,
-  Mic2,
   PhoneCall,
   Send,
   ShieldCheck,
   Target,
 } from "lucide-react";
+import { VoiceAgentPanel } from "@/components/VoiceAgentPanel";
 
 const prospects = [
   {
@@ -211,12 +211,7 @@ export default function Home() {
           body="Los emails salen por Resend solo si Miguel aprueba desde Telegram o dashboard."
           action="5 pendientes"
         />
-        <Panel
-          icon={<Mic2 className="size-5" />}
-          title="ElevenLabs Voice"
-          body="El agente de voz queda conectado a Twilio para pruebas internas antes de llamadas reales."
-          action="0 llamadas reales"
-        />
+        <VoiceAgentPanel />
         <Panel
           icon={<PhoneCall className="size-5" />}
           title="Telegram Control"
