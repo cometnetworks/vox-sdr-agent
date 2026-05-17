@@ -9,7 +9,9 @@
     "lint": "eslint",
     "elevenlabs:check": "node scripts/check-elevenlabs-key.mjs",
     "elevenlabs:sync:max": "node scripts/sync-elevenlabs-max.mjs",
-    "elevenlabs:sync:max:apply": "node scripts/sync-elevenlabs-max.mjs --apply"
+    "elevenlabs:sync:max:apply": "node scripts/sync-elevenlabs-max.mjs --apply",
+    "elevenlabs:sync:javier": "node scripts/sync-elevenlabs-max.mjs",
+    "elevenlabs:sync:javier:apply": "node scripts/sync-elevenlabs-max.mjs --apply"
   },
   "dependencies": {
     "@elevenlabs/react": "^1.6.0",

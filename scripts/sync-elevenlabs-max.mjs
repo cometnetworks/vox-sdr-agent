@@ -1,6 +1,8 @@
 import fs from "node:fs";
 
 const apply = process.argv.includes("--apply");
+const keepCurrentVoice = process.argv.includes("--keep-current-voice");
+const promptOnly = process.argv.includes("--prompt-only");
 
 const env = Object.fromEntries(
   fs
@@ -15,8 +17,8 @@ const env = Object.fromEntries(
 
 const agentId = env.ELEVENLABS_AGENT_ID || "agent_01jypeb3njep7addtqsfjccekz";
 const prompt = fs
-  .readFileSync("docs/MAX_AGENT_VOX_PROMPT.md", "utf8")
-  .replace(/^# Max - Vox SDR IA Voice Prompt\s*/u, "")
+  .readFileSync("docs/JAVIER_REUS_AGENT_PROMPT.md", "utf8")
+  .replace(/^# Javier Reus - Vox SDR IA Voice Prompt\s*/u, "")
   .trim();
 
 if (!env.ELEVENLABS_API_KEY) {
@@ -50,11 +52,13 @@ const currentAgent = currentConversationConfig.agent || {};
 const currentTts = currentConversationConfig.tts || {};
 const currentConversation = currentConversationConfig.conversation || {};
 const currentTurn = currentConversationConfig.turn || {};
+const preferredVoiceId = env.ELEVENLABS_VOICE_ID || "w7IU2bIH6xHcyfkUUWi3";
+const voiceId = keepCurrentVoice ? currentTts.voice_id : preferredVoiceId;
 
 const nextAgent = {
   ...currentAgent,
   first_message:
-    "Hola, soy Max, el SDR IA de Vox. Estoy listo para revisar prospectos, priorizar cuentas y preparar oportunidades, sin enviar nada ni hacer llamadas reales sin tu aprobacion.",
+    "Miguel, soy Javier. Ya estoy conectado. Puedo revisar cuentas Hot, preparar mensajes o ayudarte a decidir a quien conviene contactar primero.",
   language: "es",
   disable_first_message_interruptions: false,
 };
@@ -73,9 +77,9 @@ if (currentAgent.prompt && typeof currentAgent.prompt === "object") {
 }
 
 const body = {
-  name: "Max - Vox SDR IA",
+  name: "Javier Reus",
   tags: ["vox", "sdr", "latam", "sales"],
-  version_description: "Vox SDR IA prompt, Spanish language, low-latency voice settings.",
+  version_description: "Javier Reus Vox SDR prompt, shorter spoken style, more natural Spanish voice settings.",
   conversation_config: {
     ...currentConversationConfig,
     agent: nextAgent,
@@ -85,18 +89,29 @@ const body = {
     },
     turn: {
       ...currentTurn,
-      turn_timeout: currentTurn.turn_timeout || 7,
+      turn_timeout: 8,
       turn_eagerness: currentTurn.turn_eagerness || "normal",
+      soft_timeout_config: {
+        ...(currentTurn.soft_timeout_config || {}),
+        timeout_seconds: -1,
+        message: "Dame un segundo, lo estoy revisando.",
+        use_llm_generated_message: false,
+      },
     },
-    tts: {
-      ...currentTts,
-      model_id: currentTts.model_id || "eleven_flash_v2_5",
-      agent_output_audio_format: currentTts.agent_output_audio_format || "pcm_16000",
-      optimize_streaming_latency: currentTts.optimize_streaming_latency ?? 3,
-      stability: currentTts.stability ?? 0.48,
-      similarity_boost: currentTts.similarity_boost ?? 0.8,
-      speed: currentTts.speed ?? 1.03,
-    },
+    tts: promptOnly
+      ? currentTts
+      : {
+          ...currentTts,
+          model_id: "eleven_v3_conversational",
+          voice_id: voiceId,
+          expressive_mode: true,
+          agent_output_audio_format: "pcm_24000",
+          optimize_streaming_latency: 2,
+          stability: 0.38,
+          similarity_boost: 0.82,
+          speed: 0.96,
+          text_normalisation_type: "system_prompt",
+        },
   },
 };
 
@@ -111,7 +126,9 @@ if (!apply) {
         firstMessage: body.conversation_config.agent.first_message,
         language: body.conversation_config.agent.language,
         ttsModel: body.conversation_config.tts.model_id,
-        note: "Run `node scripts/sync-elevenlabs-max.mjs --apply` to patch the agent.",
+        voiceId: body.conversation_config.tts.voice_id,
+        promptOnly,
+        note: "Run `node scripts/sync-elevenlabs-max.mjs --apply` to patch the agent. Add --prompt-only to preserve all current voice settings.",
       },
       null,
       2,
@@ -151,4 +168,3 @@ console.log(
 if (!patchResponse.ok) {
   process.exit(1);
 }
-

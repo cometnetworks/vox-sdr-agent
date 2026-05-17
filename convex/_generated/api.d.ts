@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as agentContext from "../agentContext.js";
 import type * as ai from "../ai.js";
 import type * as emails from "../emails.js";
 import type * as http from "../http.js";
@@ -23,6 +24,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agentContext: typeof agentContext;
   ai: typeof ai;
   emails: typeof emails;
   http: typeof http;

@@ -40,6 +40,23 @@ async function sendTelegramMessage(chatId: number, text: string) {
   }
 }
 
+async function recordActivity(
+  ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
+  args: {
+    type: string;
+    channel?: string;
+    status: string;
+    notes?: string;
+    metadata?: Record<string, unknown>;
+  },
+) {
+  try {
+    await ctx.runMutation(api.prospects.createActivity, args);
+  } catch (error) {
+    console.error("Could not record activity", error);
+  }
+}
+
 function isAllowedChat(chatId: number) {
   const allowedChatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
 
@@ -90,7 +107,8 @@ async function buildTelegramReply(ctx: Parameters<Parameters<typeof httpAction>[
 
   if (command === "start") {
     return [
-      `Hola ${firstName}. Soy el SDR IA de Vox Media Agency.`,
+      `Hola ${firstName}. Soy Javier Reus, el ejecutivo SDR IA de Vox Media Agency.`,
+      "En Telegram puedes verme como Kodyx para identificar el bot, pero mi identidad comercial es Javier.",
       "",
       "Estoy conectado a Convex y listo para operar en modo controlado.",
       "",
@@ -260,7 +278,35 @@ http.route({
       });
     }
 
-    await sendTelegramMessage(chatId, await buildTelegramReply(ctx, update));
+    const inboundText = getTelegramText(update);
+    const firstName = update.message?.from?.first_name;
+
+    if (inboundText) {
+      await recordActivity(ctx, {
+        type: "telegram_inbound",
+        channel: "telegram",
+        status: "received",
+        notes: inboundText,
+        metadata: {
+          chatId,
+          firstName,
+        },
+      });
+    }
+
+    const reply = await buildTelegramReply(ctx, update);
+
+    await sendTelegramMessage(chatId, reply);
+
+    await recordActivity(ctx, {
+      type: "telegram_outbound",
+      channel: "telegram",
+      status: "sent",
+      notes: reply.slice(0, 1200),
+      metadata: {
+        chatId,
+      },
+    });
 
     return new Response(JSON.stringify({ ok: true, received: Boolean(update) }), {
       headers: { "content-type": "application/json" },
