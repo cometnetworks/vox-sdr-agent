@@ -1,0 +1,166 @@
+/* Capa visual del HUD. Todo es decorativo: nada aqui bloquea el puntero. */
+
+.hud-root {
+  --hud-cyan: #35d4c7;
+  --hud-cyan-soft: rgba(53, 212, 199, 0.55);
+  --hud-lime: #d7ff46;
+  --hud-dim: #6f8b89;
+  --hud-line: rgba(53, 212, 199, 0.18);
+  background: #04070a;
+  color: #cfe9e6;
+}
+
+.hud-vignette {
+  background:
+    radial-gradient(120% 90% at 50% 40%, rgba(53, 212, 199, 0.07), transparent 62%),
+    radial-gradient(140% 120% at 50% 120%, rgba(53, 212, 199, 0.1), transparent 55%);
+}
+
+/* Piso en perspectiva, como la rejilla de la referencia. */
+.hud-floor {
+  background-image:
+    linear-gradient(to right, rgba(53, 212, 199, 0.32) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(53, 212, 199, 0.32) 1px, transparent 1px);
+  background-size: 64px 64px;
+  transform: perspective(520px) rotateX(66deg);
+  transform-origin: bottom center;
+  -webkit-mask-image: linear-gradient(to top, #000 12%, rgba(0, 0, 0, 0.4) 55%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 12%, rgba(0, 0, 0, 0.4) 55%, transparent 100%);
+}
+
+/* Linea de horizonte sobre la rejilla. */
+.hud-horizon {
+  background: linear-gradient(to right, transparent, rgba(53, 212, 199, 0.45), transparent);
+}
+
+.hud-scan {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(53, 212, 199, 0.045) 0px,
+    rgba(53, 212, 199, 0.045) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+.hud-sweep::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 34%;
+  background: linear-gradient(to bottom, transparent, rgba(53, 212, 199, 0.05), transparent);
+  animation: hud-sweep 7.5s linear infinite;
+}
+
+@keyframes hud-sweep {
+  0% {
+    transform: translateY(-40%);
+  }
+  100% {
+    transform: translateY(300%);
+  }
+}
+
+/* Sin `position` aqui: la posicion la decide cada uso con utilidades de
+   Tailwind (`relative` en los paneles, `absolute` en las tarjetas flotantes). */
+.hud-panel {
+  border: 1px solid var(--hud-line);
+  background: linear-gradient(180deg, rgba(9, 18, 20, 0.82), rgba(5, 10, 12, 0.72));
+  backdrop-filter: blur(2px);
+}
+
+/* Marcas de esquina en los paneles. */
+.hud-panel::before,
+.hud-panel::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-color: var(--hud-cyan-soft);
+  border-style: solid;
+  opacity: 0.75;
+}
+
+.hud-panel::before {
+  top: -1px;
+  left: -1px;
+  border-width: 1px 0 0 1px;
+}
+
+.hud-panel::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 1px 1px 0;
+}
+
+.hud-label {
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.hud-glow {
+  text-shadow: 0 0 14px rgba(53, 212, 199, 0.45);
+}
+
+.hud-live {
+  animation: hud-live 1.9s ease-in-out infinite;
+}
+
+@keyframes hud-live {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.28;
+  }
+}
+
+.hud-card {
+  animation: hud-float 9s ease-in-out infinite;
+}
+
+/* Al apuntar la tarjeta se detiene el flotado para poder cerrarla comodo. */
+.hud-card:hover,
+.hud-card:focus-within {
+  animation-play-state: paused;
+}
+
+.hud-card:nth-child(2) {
+  animation-delay: -3s;
+}
+
+.hud-card:nth-child(3) {
+  animation-delay: -6s;
+}
+
+@keyframes hud-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+.hud-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(53, 212, 199, 0.35) transparent;
+}
+
+.hud-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.hud-scroll::-webkit-scrollbar-thumb {
+  background: rgba(53, 212, 199, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-sweep::after,
+  .hud-card,
+  .hud-live {
+    animation: none;
+  }
+}

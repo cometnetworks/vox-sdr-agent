@@ -6,10 +6,13 @@ import {
   Clock3,
   Mail,
   PhoneCall,
+  Radar,
   Send,
   ShieldCheck,
   Target,
 } from "lucide-react";
+import Link from "next/link";
+
 import { VoiceAgentPanel } from "@/components/VoiceAgentPanel";
 
 const prospects = [
@@ -89,9 +92,18 @@ export default function Home() {
                 <h1 className="text-xl font-black tracking-tight">SDR IA Command Center</h1>
               </div>
             </div>
-            <div className="hidden items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#b7b2a8] md:flex">
-              <Activity className="size-4 text-[#35d4c7]" />
-              Cloud agent activo
+            <div className="flex items-center gap-2">
+              <Link
+                className="inline-flex items-center gap-2 rounded-lg border border-[#35d4c7]/40 bg-[#35d4c7]/10 px-3 py-2 text-sm font-black text-[#35d4c7]"
+                href="/jarvis"
+              >
+                <Radar className="size-4" />
+                Command Center
+              </Link>
+              <div className="hidden items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-[#b7b2a8] md:flex">
+                <Activity className="size-4 text-[#35d4c7]" />
+                Cloud agent activo
+              </div>
             </div>
           </nav>
 
