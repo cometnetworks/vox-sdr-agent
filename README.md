@@ -15,6 +15,12 @@ El agente corre en la nube, procesa prospectos, genera research, detecta trigger
 - Telegram Bot para reportes y aprobaciones.
 - ElevenLabs Agents + Twilio para voz, solo despues de pruebas internas.
 
+## Command Center De Vera
+
+Prototipo de HUD con voz en `/jarvis`: Vera piensa con IA (FreeLLMAPI en local
+u OpenRouter) y habla con Fish Audio. Las llaves locales van en `llaves/`
+(ver `llaves/LEEME.md`). Para publicarlo: `docs/DEPLOY_NETLIFY.md`.
+
 ## Comandos
 
 ```bash

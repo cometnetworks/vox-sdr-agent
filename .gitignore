@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Llaves locales (llaves/): nunca se suben, salvo el instructivo
+/llaves/*
+!/llaves/LEEME.md
