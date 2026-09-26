@@ -272,10 +272,29 @@ export type SpeakOptions = {
   onFallback?: (reason: string) => void;
 };
 
-export async function speak(text: string, options: SpeakOptions) {
+/**
+ * Deja el texto listo para voz: lo que se lee bien en pantalla ("J.A.V.I.E.R.",
+ * "1,240", "11.4%", "+180 /sem", "2h") suena mal si se pronuncia literal.
+ */
+export function toSpeech(text: string) {
+  return text
+    .replace(/J\.A\.V\.I\.E\.R\./g, "Javier")
+    .replace(/(\d),(\d{3})\b/g, "$1$2")
+    .replace(/(\d+(?:\.\d+)?)\s?%/g, "$1 por ciento")
+    .replace(/\+(\d+)\s*\/\s*sem\b/g, "más $1 por semana")
+    .replace(/\s*\/\s*sem\b/g, " por semana")
+    .replace(/\b(\d+)\s?h\b/g, "$1 horas")
+    .replace(/\s*·\s*/g, ", ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+export async function speak(rawText: string, options: SpeakOptions) {
   cancelSpeech();
 
-  if (!text.trim()) {
+  const text = toSpeech(rawText);
+
+  if (!text) {
     return;
   }
 

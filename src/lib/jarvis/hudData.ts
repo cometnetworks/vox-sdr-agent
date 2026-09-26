@@ -13,6 +13,8 @@ export type Directive = {
   id: string;
   text: string;
   eta: string;
+  /** Como lo dice Javier en voz alta: sin anglicismos ni abreviaturas. */
+  spoken: string;
 };
 
 export type TrailEvent = {
@@ -20,6 +22,8 @@ export type TrailEvent = {
   label: string;
   detail: string;
   time: string;
+  /** Hora y evento como se dicen en voz alta. */
+  spoken: string;
 };
 
 export type HudCard = {
@@ -82,25 +86,58 @@ export const directives: Directive[] = [
     id: "d1",
     text: "Cerrar y enviar los 5 drafts en revision desde Telegram",
     eta: "2h",
+    spoken: "enviar los cinco borradores que están en revisión en Telegram, en dos horas",
   },
   {
     id: "d2",
     text: "Validar la prueba interna de voz antes de habilitar Twilio",
     eta: "4h",
+    spoken: "validar la prueba interna de voz antes de activar Twilio, en cuatro horas",
   },
   {
     id: "d3",
     text: "Resembrar la base con 40 prospectos nuevos del ICP consultoria",
     eta: "6h",
+    spoken: "sumar cuarenta prospectos nuevos del perfil de consultoría, en seis horas",
   },
 ];
 
 export const trail: TrailEvent[] = [
-  { id: "t1", label: "Research Agent", detail: "contexto de 10 cuentas", time: "07:08" },
-  { id: "t2", label: "Scoring Agent", detail: "Hot 3 · Warm 4 · Cold 3", time: "07:18" },
-  { id: "t3", label: "Outreach Agent", detail: "5 drafts estilo Vox", time: "07:32" },
-  { id: "t4", label: "Reporte Telegram", detail: "entregado a Miguel", time: "08:00" },
-  { id: "t5", label: "Voz interna", detail: "prueba sin Twilio", time: "09:15" },
+  {
+    id: "t1",
+    label: "Research Agent",
+    detail: "contexto de 10 cuentas",
+    time: "07:08",
+    spoken: "a las siete y ocho investigué diez cuentas",
+  },
+  {
+    id: "t2",
+    label: "Scoring Agent",
+    detail: "Hot 3 · Warm 4 · Cold 3",
+    time: "07:18",
+    spoken: "a las siete dieciocho las califiqué: tres calientes, cuatro tibias y tres frías",
+  },
+  {
+    id: "t3",
+    label: "Outreach Agent",
+    detail: "5 drafts estilo Vox",
+    time: "07:32",
+    spoken: "a las siete treinta y dos redacté cinco borradores con el estilo de Vox",
+  },
+  {
+    id: "t4",
+    label: "Reporte Telegram",
+    detail: "entregado a Miguel",
+    time: "08:00",
+    spoken: "a las ocho te mandé el reporte por Telegram",
+  },
+  {
+    id: "t5",
+    label: "Voz interna",
+    detail: "prueba sin Twilio",
+    time: "09:15",
+    spoken: "y a las nueve y cuarto hicimos la prueba interna de voz",
+  },
 ];
 
 export const hudCards: HudCard[] = [
@@ -131,5 +168,6 @@ export const primaryDirective = {
   target: 100,
   weekly: "+6",
   pace: "MAR 2027",
+  paceSpoken: "marzo de 2027",
   footnote: "ultimo deploy · Javier voz interna en navegador — sin llamadas reales",
 };

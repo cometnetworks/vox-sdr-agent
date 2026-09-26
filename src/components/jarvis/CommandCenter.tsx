@@ -140,7 +140,7 @@ function useIsClient() {
 const bootMessage: Message = {
   id: "boot",
   role: "javier",
-  text: `${hudIdentity.code} en linea. Nucleo estable, enlace con Convex activo. Pide estado, prospectos, directivas o bitacora.`,
+  text: `${hudIdentity.code} en línea. Núcleo estable y enlace con Convex activo. Pregúntame por el estado, los prospectos, las directivas o la bitácora.`,
   time: "",
 };
 
@@ -653,7 +653,7 @@ export function CommandCenter() {
                         // Sin almacenamiento el cambio vale solo para esta visita.
                       }
 
-                      void speak("Asi sueno con esta voz.", { provider: "browser", voiceName: next });
+                      void speak("Hola, Miguel. Así sueno con esta voz.", { provider: "browser", voiceName: next });
                     }}
                     aria-label="Voz del navegador"
                     className="h-9 min-w-0 flex-1 bg-transparent text-[10px] text-[#e6fffb] outline-none"
