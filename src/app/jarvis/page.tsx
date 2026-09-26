@@ -4,9 +4,9 @@ import { CommandCenter } from "@/components/jarvis/CommandCenter";
 import "./hud.css";
 
 export const metadata: Metadata = {
-  title: "J.A.V.I.E.R. · Command Center",
+  title: "V.E.R.A. · Command Center",
   description:
-    "Prototipo de interfaz tipo Jarvis para hablar con el ejecutivo SDR IA de Vox Media Agency.",
+    "Prototipo de interfaz tipo Jarvis para hablar con Vera, la ejecutiva SDR IA de Vox Media Agency.",
 };
 
 export default function JarvisPage() {

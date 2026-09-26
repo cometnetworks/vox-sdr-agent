@@ -69,7 +69,7 @@ export function respond(rawInput: string): BrainReply {
 
   if (matches(input, ["hola", "buenos dias", "buenas tardes", "quien eres", "presentate"])) {
     return {
-      text: `Hola, ${firstName()}. Soy Javier, tu ejecutivo de ventas con inteligencia artificial en ${hudIdentity.org}. Pregúntame por el estado del pipeline, los prospectos, las directivas o la bitácora.`,
+      text: `Hola, ${firstName()}. Soy ${hudIdentity.name}, tu ejecutiva de ventas con inteligencia artificial en ${hudIdentity.org}. Pregúntame por el estado del pipeline, los prospectos, las directivas o la bitácora.`,
       action: { kind: "focus", panel: "core" },
     };
   }

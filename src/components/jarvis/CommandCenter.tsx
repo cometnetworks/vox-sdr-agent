@@ -48,7 +48,7 @@ import {
   type TtsProvider,
 } from "@/lib/jarvis/voice";
 
-type Role = "operator" | "javier";
+type Role = "operator" | "agent";
 
 type Message = {
   id: string;
@@ -61,7 +61,7 @@ type PanelId = "vitals" | "directives" | "trail" | "core";
 
 type FishStatus = "checking" | "ready" | "missing";
 
-const VOICE_STORAGE_KEY = "javier.voice";
+const VOICE_STORAGE_KEY = "vera.voice";
 
 function readStoredVoice() {
   try {
@@ -139,7 +139,7 @@ function useIsClient() {
 
 const bootMessage: Message = {
   id: "boot",
-  role: "javier",
+  role: "agent",
   text: `${hudIdentity.code} en línea. Núcleo estable y enlace con Convex activo. Pregúntame por el estado, los prospectos, las directivas o la bitácora.`,
   time: "",
 };
@@ -263,7 +263,7 @@ export function CommandCenter() {
       window.setTimeout(() => {
         setMessages((current) => [
           ...current,
-          { id: `j-${Date.now()}`, role: "javier", text: reply.text, time: clockNow() },
+          { id: `j-${Date.now()}`, role: "agent", text: reply.text, time: clockNow() },
         ]);
         applyAction(reply.action);
 
@@ -619,7 +619,7 @@ export function CommandCenter() {
                       setProvider(option);
                       setNotice(
                         option === "fish" && fishStatus === "missing"
-                          ? "Fish Audio no tiene llave todavia. Agrega FISH_AUDIO_API_KEY en .env.local y reinicia npm run dev; mientras, sigo con la voz del navegador."
+                          ? "Fish Audio no tiene llave todavía. Pégala en llaves/fish-audio.txt, guarda y recarga la página; mientras, sigo con la voz del navegador."
                           : null,
                       );
                     }}
@@ -683,7 +683,7 @@ export function CommandCenter() {
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder="escribe una orden"
-                  aria-label="Orden escrita para Javier"
+                  aria-label="Orden escrita para Vera"
                   className="h-10 flex-1 bg-transparent text-[11px] text-[#e6fffb] outline-none placeholder:text-[var(--hud-dim)]"
                 />
                 <button

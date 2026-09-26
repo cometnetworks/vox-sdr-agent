@@ -13,7 +13,7 @@ export type Directive = {
   id: string;
   text: string;
   eta: string;
-  /** Como lo dice Javier en voz alta: sin anglicismos ni abreviaturas. */
+  /** Como lo dice Vera en voz alta: sin anglicismos ni abreviaturas. */
   spoken: string;
 };
 
@@ -34,8 +34,9 @@ export type HudCard = {
 };
 
 export const hudIdentity = {
-  code: "J.A.V.I.E.R.",
-  expansion: "Junta Autonoma de Voz e Inteligencia Ejecutiva en Red",
+  code: "V.E.R.A.",
+  name: "Vera",
+  expansion: "Voz Ejecutiva de Relaciones y Agenda",
   operator: "Miguel Cedillo",
   org: "Vox Media Agency",
 };
@@ -169,5 +170,5 @@ export const primaryDirective = {
   weekly: "+6",
   pace: "MAR 2027",
   paceSpoken: "marzo de 2027",
-  footnote: "ultimo deploy · Javier voz interna en navegador — sin llamadas reales",
+  footnote: "ultimo deploy · Vera voz interna en navegador — sin llamadas reales",
 };
