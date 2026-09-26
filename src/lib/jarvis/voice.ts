@@ -160,22 +160,93 @@ function describeRecognitionError(code: string) {
   return `Fallo el reconocimiento de voz (${code}).`;
 }
 
-export function pickSpanishVoice(): SpeechSynthesisVoice | null {
+/**
+ * Las voces del navegador varian mucho en calidad. Las compactas del sistema
+ * suenan roboticas; las "Premium"/"Mejorada" de macOS, las "Natural" de Edge y
+ * las de red de Google suenan mucho mas humanas. Las ordenamos por eso.
+ */
+const QUALITY_HINTS: Array<[RegExp, number]> = [
+  [/premium/i, 60],
+  [/natural|neural/i, 55],
+  [/mejorad|enhanced/i, 45],
+  [/online/i, 35],
+  [/google/i, 30],
+  [/siri/i, 25],
+];
+
+const LANG_RANK: Array<[RegExp, number]> = [
+  [/^es[-_]MX/i, 12],
+  [/^es[-_](US|419)/i, 9],
+  [/^es/i, 5],
+];
+
+function scoreVoice(voice: SpeechSynthesisVoice) {
+  let score = 0;
+
+  for (const [pattern, weight] of QUALITY_HINTS) {
+    if (pattern.test(voice.name)) {
+      score += weight;
+    }
+  }
+
+  const lang = LANG_RANK.find(([pattern]) => pattern.test(voice.lang));
+  return score + (lang ? lang[1] : 0);
+}
+
+const NO_VOICES: SpeechSynthesisVoice[] = [];
+let voiceCache: SpeechSynthesisVoice[] = NO_VOICES;
+
+function readSpanishVoices() {
   if (typeof window === "undefined" || !window.speechSynthesis) {
-    return null;
+    return NO_VOICES;
   }
 
-  const voices = window.speechSynthesis.getVoices();
+  return window.speechSynthesis
+    .getVoices()
+    .filter((voice) => /^es/i.test(voice.lang))
+    .sort((a, b) => scoreVoice(b) - scoreVoice(a));
+}
 
-  if (voices.length === 0) {
-    return null;
+/**
+ * Chrome carga las voces en diferido y avisa con "voiceschanged". Esto se usa
+ * con useSyncExternalStore; el snapshot se cachea para devolver siempre la
+ * misma referencia mientras la lista no cambie.
+ */
+export function subscribeVoices(listener: () => void) {
+  if (typeof window === "undefined" || !window.speechSynthesis) {
+    return () => {};
   }
 
-  return (
-    voices.find((voice) => /^es-MX/i.test(voice.lang)) ??
-    voices.find((voice) => /^es/i.test(voice.lang)) ??
-    null
-  );
+  const refresh = () => {
+    voiceCache = readSpanishVoices();
+    listener();
+  };
+
+  voiceCache = readSpanishVoices();
+  window.speechSynthesis.addEventListener("voiceschanged", refresh);
+  return () => window.speechSynthesis.removeEventListener("voiceschanged", refresh);
+}
+
+export function getVoicesSnapshot() {
+  return voiceCache;
+}
+
+export function getServerVoicesSnapshot() {
+  return NO_VOICES;
+}
+
+export function pickSpanishVoice(preferredName?: string): SpeechSynthesisVoice | null {
+  const voices = readSpanishVoices();
+
+  if (preferredName) {
+    const preferred = voices.find((voice) => voice.name === preferredName);
+
+    if (preferred) {
+      return preferred;
+    }
+  }
+
+  return voices[0] ?? null;
 }
 
 let activeAudio: HTMLAudioElement | null = null;
@@ -194,6 +265,8 @@ export function cancelSpeech() {
 
 export type SpeakOptions = {
   provider: TtsProvider;
+  /** Nombre de la voz del navegador elegida; vacio = la mejor disponible. */
+  voiceName?: string;
   onStart?: () => void;
   onEnd?: () => void;
   onFallback?: (reason: string) => void;
@@ -227,15 +300,16 @@ function speakWithBrowser(text: string, options: SpeakOptions) {
   }
 
   const utterance = new SpeechSynthesisUtterance(text);
-  const voice = pickSpanishVoice();
+  const voice = pickSpanishVoice(options.voiceName);
 
   if (voice) {
     utterance.voice = voice;
   }
 
   utterance.lang = voice?.lang ?? "es-MX";
-  utterance.rate = 1.02;
-  utterance.pitch = 0.9;
+  // Tono y ritmo neutros: bajar el pitch hacia sonar la voz mas sintetica.
+  utterance.rate = 1;
+  utterance.pitch = 1;
 
   utterance.onstart = () => options.onStart?.();
   utterance.onend = () => options.onEnd?.();

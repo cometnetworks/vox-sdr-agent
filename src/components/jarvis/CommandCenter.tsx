@@ -39,8 +39,11 @@ import {
 import {
   cancelSpeech,
   createRecognizer,
+  getServerVoicesSnapshot,
+  getVoicesSnapshot,
   isSpeechRecognitionSupported,
   speak,
+  subscribeVoices,
   type Recognizer,
   type TtsProvider,
 } from "@/lib/jarvis/voice";
@@ -55,6 +58,18 @@ type Message = {
 };
 
 type PanelId = "vitals" | "directives" | "trail" | "core";
+
+type FishStatus = "checking" | "ready" | "missing";
+
+const VOICE_STORAGE_KEY = "javier.voice";
+
+function readStoredVoice() {
+  try {
+    return window.localStorage.getItem(VOICE_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
 
 const cardPosition: Record<HudCard["anchor"], string> = {
   "top-left": "left-2 top-6 lg:left-6 lg:top-10",
@@ -137,6 +152,11 @@ export function CommandCenter() {
   const [coreState, setCoreState] = useState<CoreState>("idle");
   const [muted, setMuted] = useState(false);
   const [provider, setProvider] = useState<TtsProvider>("browser");
+  const [fishStatus, setFishStatus] = useState<FishStatus>("checking");
+  // El selector de voz no se pinta en el servidor, asi que leer aqui no rompe la hidratacion.
+  const [voiceName, setVoiceName] = useState(() =>
+    typeof window === "undefined" ? "" : readStoredVoice(),
+  );
   const [notice, setNotice] = useState<string | null>(null);
   const [focused, setFocused] = useState<PanelId | null>(null);
   const [openCards, setOpenCards] = useState<string[]>(hudCards.map((card) => card.id));
@@ -147,6 +167,7 @@ export function CommandCenter() {
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   const clock = useClock();
+  const voices = useSyncExternalStore(subscribeVoices, getVoicesSnapshot, getServerVoicesSnapshot);
   const isClient = useIsClient();
   const supportsVoice = useMemo(() => isClient && isSpeechRecognitionSupported(), [isClient]);
 
@@ -158,6 +179,34 @@ export function CommandCenter() {
     const timer = window.setTimeout(() => setFocused(null), 2600);
     return () => window.clearTimeout(timer);
   }, [focused]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/voice/tts", { cache: "no-store" })
+      .then((response) => response.json() as Promise<{ available?: boolean }>)
+      .then((body) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (body.available) {
+          setFishStatus("ready");
+          setProvider("fish");
+        } else {
+          setFishStatus("missing");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFishStatus("missing");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({
@@ -233,6 +282,7 @@ export function CommandCenter() {
 
         void speak(reply.text, {
           provider,
+          voiceName,
           onStart: () => setCoreState("speaking"),
           onFallback: (reason) => setNotice(reason),
           onEnd: () => {
@@ -245,7 +295,7 @@ export function CommandCenter() {
         });
       }, 420);
     },
-    [applyAction, muted, provider],
+    [applyAction, muted, provider, voiceName],
   );
 
   const startListening = useCallback(() => {
@@ -565,17 +615,60 @@ export function CommandCenter() {
                   <button
                     key={option}
                     type="button"
-                    onClick={() => setProvider(option)}
+                    onClick={() => {
+                      setProvider(option);
+                      setNotice(
+                        option === "fish" && fishStatus === "missing"
+                          ? "Fish Audio no tiene llave todavia. Agrega FISH_AUDIO_API_KEY en .env.local y reinicia npm run dev; mientras, sigo con la voz del navegador."
+                          : null,
+                      );
+                    }}
                     className={`hud-label py-1.5 text-[9px] transition ${
                       provider === option
                         ? "bg-[var(--hud-cyan)]/15 text-[var(--hud-cyan)]"
                         : "text-[var(--hud-dim)] hover:text-[#cfe9e6]"
                     }`}
                   >
-                    {option === "browser" ? "navegador" : "fish audio"}
+                    {option === "browser"
+                      ? "navegador"
+                      : fishStatus === "missing"
+                        ? "fish · sin llave"
+                        : "fish audio"}
                   </button>
                 ))}
               </div>
+
+              {provider === "browser" && voices.length > 0 ? (
+                <label className="mt-2 flex items-center gap-2 border border-[var(--hud-line)] px-2">
+                  <span className="hud-label shrink-0 text-[9px] text-[var(--hud-dim)]">voz</span>
+                  <select
+                    value={voiceName}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setVoiceName(next);
+
+                      try {
+                        window.localStorage.setItem(VOICE_STORAGE_KEY, next);
+                      } catch {
+                        // Sin almacenamiento el cambio vale solo para esta visita.
+                      }
+
+                      void speak("Asi sueno con esta voz.", { provider: "browser", voiceName: next });
+                    }}
+                    aria-label="Voz del navegador"
+                    className="h-9 min-w-0 flex-1 bg-transparent text-[10px] text-[#e6fffb] outline-none"
+                  >
+                    <option value="" className="bg-[#04070a]">
+                      automatica · {voices[0]?.name}
+                    </option>
+                    {voices.map((voice) => (
+                      <option key={voice.voiceURI} value={voice.name} className="bg-[#04070a]">
+                        {voice.name} · {voice.lang}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
 
               <form
                 className="mt-3 flex items-center gap-2 border border-[var(--hud-line)] px-2"
