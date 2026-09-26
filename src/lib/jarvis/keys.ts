@@ -10,6 +10,10 @@ const KEYS_DIR = join(process.cwd(), "llaves");
 
 export const DEFAULT_FISH_MODEL = "s2.1-pro-free";
 export const DEFAULT_BRAIN_MODEL = "openrouter/free";
+// FreeLLMAPI corre en tu computadora por defecto. "auto:fast" rota entre
+// proveedores gratuitos priorizando velocidad, que es lo que importa en voz.
+export const DEFAULT_FREELLMAPI_URL = "http://localhost:3001/v1";
+export const DEFAULT_FREELLMAPI_MODEL = "auto:fast";
 
 function clean(value: string) {
   return value.trim().replace(/^["']|["']$/g, "").trim();
@@ -71,16 +75,47 @@ export async function getFishConfig(): Promise<FishConfig> {
   };
 }
 
+export type BrainProvider = "freellmapi" | "openrouter";
+
 export type BrainConfig = {
+  provider: BrainProvider;
+  /** Nombre para mostrar en el HUD y en los avisos. */
+  label: string;
+  /** Archivo de llaves donde el usuario corrige la configuracion. */
+  keysFile: string;
   apiKey: string;
   model: string;
   baseURL: string;
 };
 
+/**
+ * Si hay llave de FreeLLMAPI se usa esa (rota entre proveedores gratis y
+ * rapidos); si no, OpenRouter, que es el proveedor de IA del proyecto.
+ */
 export async function getBrainConfig(): Promise<BrainConfig> {
+  const free = await readKeyFile("freellmapi.txt", "FREELLMAPI_API_KEY");
+  const freeKey = free.FREELLMAPI_API_KEY || process.env.FREELLMAPI_API_KEY || "";
+
+  if (freeKey) {
+    return {
+      provider: "freellmapi",
+      label: "FreeLLMAPI",
+      keysFile: "llaves/freellmapi.txt",
+      apiKey: freeKey,
+      model: free.FREELLMAPI_MODEL || process.env.FREELLMAPI_MODEL || DEFAULT_FREELLMAPI_MODEL,
+      baseURL: (free.FREELLMAPI_BASE_URL || process.env.FREELLMAPI_BASE_URL || DEFAULT_FREELLMAPI_URL).replace(
+        /\/+$/,
+        "",
+      ),
+    };
+  }
+
   const file = await readKeyFile("openrouter.txt", "OPENROUTER_API_KEY");
 
   return {
+    provider: "openrouter",
+    label: "OpenRouter",
+    keysFile: "llaves/openrouter.txt",
     apiKey: file.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || "",
     model: file.OPENROUTER_MODEL || process.env.OPENROUTER_MODEL || DEFAULT_BRAIN_MODEL,
     baseURL: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",

@@ -12,6 +12,18 @@ FISH_AUDIO_API_KEY=
 # Opcional: ID de una voz en espanol de fish.audio (sale en la URL de la voz).
 FISH_AUDIO_VOICE_ID=
 `,
+  "freellmapi.txt": `# Pega tu llave unificada de FreeLLMAPI (empieza con freellmapi-) despues del =.
+# Si esta llave existe, Vera piensa con FreeLLMAPI en vez de OpenRouter.
+FREELLMAPI_API_KEY=
+
+# Donde corre FreeLLMAPI. En tu computadora: http://localhost:3001/v1
+# Si usas una version en la nube, pon aqui su direccion (termina en /v1).
+FREELLMAPI_BASE_URL=http://localhost:3001/v1
+
+# "auto:fast" rota entre proveedores gratuitos priorizando velocidad (ideal para voz).
+# Otras opciones: "auto" o "auto:smart" (mas listo, mas lento).
+FREELLMAPI_MODEL=auto:fast
+`,
   "openrouter.txt": `# Pega tu llave de OpenRouter despues del signo =, sin espacios ni comillas.
 # Con esta llave Vera piensa sus respuestas en vez de usar frases fijas.
 OPENROUTER_API_KEY=

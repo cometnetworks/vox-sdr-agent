@@ -7,14 +7,28 @@ archivo), así que nada de lo que pegues aquí se sube a GitHub.
 signo `=`, sin espacios ni comillas, guarda y recarga
 http://localhost:3000/jarvis. No hace falta reiniciar.
 
-## openrouter.txt: que Vera piense
+## El cerebro de Vera (elige uno)
 
-Con esta llave Vera responde con inteligencia artificial en vez de frases fijas.
+Si hay llave de FreeLLMAPI, Vera usa esa. Si no, usa OpenRouter.
+
+### freellmapi.txt (recomendado para voz)
+
+[FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) corre en tu computadora
+y rota entre los planes gratis de varios proveedores rápidos (Groq, Cerebras,
+Gemini y otros); si uno se satura, salta al siguiente.
+
+- `FREELLMAPI_API_KEY`: la llave unificada (empieza con `freellmapi-`), en la
+  página Keys de su panel.
+- `FREELLMAPI_BASE_URL`: `http://localhost:3001/v1` si lo corres en tu Mac.
+- `FREELLMAPI_MODEL`: `auto:fast` prioriza velocidad; `auto:smart`, calidad.
+
+FreeLLMAPI tiene que estar prendido mientras hablas con Vera.
+
+### openrouter.txt
 
 - `OPENROUTER_API_KEY`: tu llave de openrouter.ai (Keys, en tu cuenta).
-- `OPENROUTER_MODEL`: `openrouter/free` elige solo un modelo gratuito disponible.
-  Si responde lento, pon aquí un modelo gratuito específico de openrouter.ai
-  (los gratuitos terminan en `:free`).
+- `OPENROUTER_MODEL`: `openrouter/free` elige solo un modelo gratuito. Si
+  responde lento, pon un modelo gratuito específico (terminan en `:free`).
 
 ## fish-audio.txt: la voz de Vera
 

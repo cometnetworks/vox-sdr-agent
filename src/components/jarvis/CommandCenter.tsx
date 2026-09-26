@@ -174,6 +174,7 @@ export function CommandCenter() {
   const [provider, setProvider] = useState<TtsProvider>("browser");
   const [fishStatus, setFishStatus] = useState<FishStatus>("checking");
   const [brainStatus, setBrainStatus] = useState<BrainStatus>("checking");
+  const [brainProvider, setBrainProvider] = useState("");
   // El selector de voz no se pinta en el servidor, asi que leer aqui no rompe la hidratacion.
   const [voiceName, setVoiceName] = useState(() =>
     typeof window === "undefined" ? "" : readStoredVoice(),
@@ -212,10 +213,11 @@ export function CommandCenter() {
     let cancelled = false;
 
     fetch("/api/vera/chat", { cache: "no-store" })
-      .then((response) => response.json() as Promise<{ available?: boolean }>)
+      .then((response) => response.json() as Promise<{ available?: boolean; provider?: string }>)
       .then((body) => {
         if (!cancelled) {
           setBrainStatus(body.available ? "ready" : "missing");
+          setBrainProvider(body.available ? body.provider ?? "" : "");
         }
       })
       .catch(() => {
@@ -432,7 +434,7 @@ export function CommandCenter() {
       } else if (brainStatus === "missing" && !brainNoticeShownRef.current) {
         brainNoticeShownRef.current = true;
         setNotice(
-          "Vera responde con frases fijas. Para que piense, pega tu llave de OpenRouter en llaves/openrouter.txt y recarga la página.",
+          "Vera responde con frases fijas. Para que piense, pega tu llave de FreeLLMAPI en llaves/freellmapi.txt (o la de OpenRouter en llaves/openrouter.txt) y recarga la página.",
         );
       }
 
@@ -441,7 +443,7 @@ export function CommandCenter() {
           setNotice(
             (current) =>
               current ??
-              "El modelo de IA no dio una respuesta clara; contesté con frases fijas. Si pasa seguido, fija otro OPENROUTER_MODEL en llaves/openrouter.txt.",
+              "El modelo de IA no dio una respuesta clara; contesté con frases fijas. Si pasa seguido, fija otro modelo en tu archivo de llaves.",
           );
         }
 
@@ -733,7 +735,7 @@ export function CommandCenter() {
               title="Consola de voz"
               className="flex-1"
               tag={`${provider === "fish" ? "fish.audio" : "web.speech"} · ${
-                brainStatus === "ready" ? "ia" : "reglas"
+                brainStatus === "ready" ? brainProvider.toLowerCase() || "ia" : "reglas"
               }`}
               icon={<Mic className="size-3.5" />}
               bodyClassName="flex min-h-[280px] flex-1 flex-col"

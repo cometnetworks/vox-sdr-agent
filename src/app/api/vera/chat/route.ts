@@ -6,7 +6,7 @@ import type {
 } from "openai/resources/chat/completions";
 import { NextResponse } from "next/server";
 
-import { getBrainConfig } from "@/lib/jarvis/keys";
+import { getBrainConfig, type BrainConfig } from "@/lib/jarvis/keys";
 import { buildSystemPrompt } from "@/lib/jarvis/persona";
 import { createSpokenFilter } from "@/lib/jarvis/spokenFilter";
 
@@ -20,7 +20,11 @@ type ChatTurn = { role: "user" | "assistant"; content: string };
 /** Avisa al HUD si Vera puede pensar con IA o si sigue con reglas fijas. */
 export async function GET() {
   const config = await getBrainConfig();
-  return NextResponse.json({ available: Boolean(config.apiKey), model: config.model });
+  return NextResponse.json({
+    available: Boolean(config.apiKey),
+    provider: config.label,
+    model: config.model,
+  });
 }
 
 /**
@@ -34,7 +38,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Vera no tiene cerebro de IA todavía. Pega tu llave de OpenRouter en llaves/openrouter.txt y recarga la página. Mientras, respondo con frases fijas.",
+          "Vera no tiene cerebro de IA todavía. Pega tu llave de FreeLLMAPI en llaves/freellmapi.txt o la de OpenRouter en llaves/openrouter.txt, y recarga la página. Mientras, respondo con frases fijas.",
       },
       { status: 501 },
     );
@@ -65,8 +69,8 @@ export async function POST(request: Request) {
     max_tokens: 900,
     temperature: 0.6,
     messages: [{ role: "system", content: buildSystemPrompt() }, ...history],
-    // OpenRouter: si el modelo razona, que sea poco y oculto para no retrasar la voz.
-    reasoning: { effort: "low", exclude: true },
+    // Solo OpenRouter entiende `reasoning`; otros proveedores rechazan campos extra.
+    ...(config.provider === "openrouter" ? { reasoning: { effort: "low", exclude: true } } : {}),
   } as ChatCompletionCreateParamsStreaming;
 
   let stream: Stream<ChatCompletionChunk>;
@@ -80,11 +84,11 @@ export async function POST(request: Request) {
     first = await iterator.next();
   } catch (error) {
     const status = error instanceof OpenAI.APIError && error.status ? error.status : 502;
-    return NextResponse.json({ error: describeBrainError(error) }, { status });
+    return NextResponse.json({ error: describeBrainError(error, config) }, { status });
   }
 
   const model = first.done ? config.model : first.value.model || config.model;
-  console.log(`[vera] respondio ${model}`);
+  console.log(`[vera] respondio ${model} via ${config.label}`);
 
   const encoder = new TextEncoder();
   const filter = createSpokenFilter();
@@ -160,26 +164,32 @@ function sanitizeHistory(raw: unknown): ChatTurn[] {
     .slice(-MAX_TURNS);
 }
 
-function describeBrainError(error: unknown) {
+function describeBrainError(error: unknown, config: BrainConfig) {
+  const { label, keysFile } = config;
+
   if (error instanceof OpenAI.APIConnectionError) {
-    return "No pude conectar con OpenRouter. Revisa tu internet; mientras, respondo con frases fijas.";
+    if (config.provider === "freellmapi") {
+      return `No pude conectar con FreeLLMAPI en ${config.baseURL}. Si lo corres en tu computadora, revisa que esté prendido; si usas una versión en la nube, pon su dirección en FREELLMAPI_BASE_URL dentro de ${keysFile}. Mientras, respondo con frases fijas.`;
+    }
+
+    return `No pude conectar con ${label}. Revisa tu internet; mientras, respondo con frases fijas.`;
   }
 
   if (error instanceof OpenAI.APIError) {
     if (error.status === 401 || error.status === 403) {
-      return "OpenRouter rechazó la llave. Revísala en llaves/openrouter.txt; mientras, respondo con frases fijas.";
+      return `${label} rechazó la llave. Revísala en ${keysFile}; mientras, respondo con frases fijas.`;
     }
 
     if (error.status === 402) {
-      return "OpenRouter pide créditos para ese modelo. Usa OPENROUTER_MODEL=openrouter/free en llaves/openrouter.txt.";
+      return `${label} pide créditos para ese modelo. Elige uno gratuito en ${keysFile}.`;
     }
 
     if (error.status === 404) {
-      return "OpenRouter no encontró ese modelo. Revisa OPENROUTER_MODEL en llaves/openrouter.txt.";
+      return `${label} no encontró el modelo "${config.model}". Revísalo en ${keysFile}.`;
     }
 
     if (error.status === 429) {
-      return "El modelo gratuito está saturado o llegaste al límite por ahora. Espera unos segundos o cambia OPENROUTER_MODEL.";
+      return `${label} llegó al límite gratuito por ahora. Espera unos segundos o cambia de modelo en ${keysFile}.`;
     }
   }
 
