@@ -112,13 +112,6 @@ export function respond(rawInput: string): BrainReply {
     return { text: "Listo, consola limpia. Te sigo escuchando.", action: { kind: "clear" } };
   }
 
-  if (matches(input, TERMS.hello)) {
-    return {
-      text: `Hola, ${firstName()}. Soy ${hudIdentity.name}, tu ejecutiva de ventas con inteligencia artificial en ${hudIdentity.org}. Pregúntame por el estado del pipeline, los prospectos, las directivas o la bitácora.`,
-      action: { kind: "focus", panel: "core" },
-    };
-  }
-
   if (matches(input, TERMS.status)) {
     return {
       text: `Vamos bien. Tenemos ${vitalValue("prospects")} prospectos activos y ${vitalValue("outreach")} mensajes enviados, con una tasa de respuesta del ${vitalValue("reply")}. Llevamos ${primaryDirective.value} de ${primaryDirective.target} reuniones agendadas.`,
@@ -168,6 +161,14 @@ export function respond(rawInput: string): BrainReply {
 
   if (matches(input, TERMS.thanks)) {
     return { text: `A la orden, ${firstName()}. Aquí sigo.`, action: { kind: "none" } };
+  }
+
+  // El saludo va al final: "hola, dame prospectos" debe contestar prospectos.
+  if (matches(input, TERMS.hello)) {
+    return {
+      text: `Hola, ${firstName()}. Soy ${hudIdentity.name}, tu ejecutiva de ventas con inteligencia artificial en ${hudIdentity.org}. Pregúntame por el estado del pipeline, los prospectos, las directivas o la bitácora.`,
+      action: { kind: "focus", panel: "core" },
+    };
   }
 
   return {

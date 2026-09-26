@@ -57,6 +57,8 @@ type Message = {
   role: Role;
   text: string;
   time: string;
+  /** Modelo de IA que contesto; vacio si fue una frase fija. */
+  model?: string;
 };
 
 type PanelId = "vitals" | "directives" | "trail" | "core";
@@ -85,6 +87,15 @@ const cardPosition: Record<HudCard["anchor"], string> = {
   "top-right": "right-2 top-16 lg:right-4 lg:top-8",
   "bottom-right": "bottom-40 right-2 lg:bottom-44 lg:right-10",
 };
+
+/** "openai/gpt-oss-20b:free" -> "gpt-oss-20b": cabe en la etiqueta del mensaje. */
+function shortModelName(model: string | null) {
+  if (!model) {
+    return "";
+  }
+
+  return model.split("/").pop()?.replace(/:free$/, "") ?? model;
+}
 
 function clockNow() {
   return new Date().toLocaleTimeString("es-MX", {
@@ -377,6 +388,14 @@ export function CommandCenter() {
             throw new Error(body?.error || "El cerebro de IA no respondió; contesto con frases fijas.");
           }
 
+          const model = shortModelName(response.headers.get("x-vera-model"));
+
+          if (model) {
+            setMessages((current) =>
+              current.map((message) => (message.id === replyId ? { ...message, model } : message)),
+            );
+          }
+
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
 
@@ -418,6 +437,17 @@ export function CommandCenter() {
       }
 
       if (!reply.trim()) {
+        if (brainStatus === "ready" && !replyAbortRef.current) {
+          setNotice(
+            (current) =>
+              current ??
+              "El modelo de IA no dio una respuesta clara; contesté con frases fijas. Si pasa seguido, fija otro OPENROUTER_MODEL en llaves/openrouter.txt.",
+          );
+        }
+
+        setMessages((current) =>
+          current.map((message) => (message.id === replyId ? { ...message, model: undefined } : message)),
+        );
         append(respond(text).text);
       }
 
@@ -717,6 +747,7 @@ export function CommandCenter() {
                     <p className="hud-label text-[9px] text-[var(--hud-dim)]">
                       {message.role === "operator" ? hudIdentity.operator : hudIdentity.code}
                       {message.time ? ` · ${message.time}` : ""}
+                      {message.model ? ` · ${message.model}` : ""}
                     </p>
                     <p
                       className={`mt-1 text-[11px] leading-5 ${

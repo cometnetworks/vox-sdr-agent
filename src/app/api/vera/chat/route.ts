@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 
 import { getBrainConfig } from "@/lib/jarvis/keys";
 import { buildSystemPrompt } from "@/lib/jarvis/persona";
+import { createSpokenFilter } from "@/lib/jarvis/spokenFilter";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +61,8 @@ export async function POST(request: Request) {
   const params = {
     model: config.model,
     stream: true,
-    max_tokens: 260,
+    // Holgado: si el modelo razona dentro de la respuesta, que no corte lo que dice.
+    max_tokens: 900,
     temperature: 0.6,
     messages: [{ role: "system", content: buildSystemPrompt() }, ...history],
     // OpenRouter: si el modelo razona, que sea poco y oculto para no retrasar la voz.
@@ -68,28 +70,60 @@ export async function POST(request: Request) {
   } as ChatCompletionCreateParamsStreaming;
 
   let stream: Stream<ChatCompletionChunk>;
+  let first: IteratorResult<ChatCompletionChunk>;
+  let iterator: AsyncIterator<ChatCompletionChunk>;
 
   try {
     stream = await client.chat.completions.create(params, { signal: request.signal });
+    iterator = stream[Symbol.asyncIterator]();
+    // El primer pedazo dice que modelo contesto de verdad (openrouter/free elige uno).
+    first = await iterator.next();
   } catch (error) {
     const status = error instanceof OpenAI.APIError && error.status ? error.status : 502;
     return NextResponse.json({ error: describeBrainError(error) }, { status });
   }
 
+  const model = first.done ? config.model : first.value.model || config.model;
+  console.log(`[vera] respondio ${model}`);
+
   const encoder = new TextEncoder();
+  const filter = createSpokenFilter();
 
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
-      try {
-        for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta?.content;
+      let truncated = false;
 
-          if (delta) {
-            controller.enqueue(encoder.encode(delta));
-          }
+      const take = (chunk: ChatCompletionChunk) => {
+        const choice = chunk.choices[0];
+
+        if (choice?.finish_reason === "length") {
+          truncated = true;
+        }
+
+        const spoken = choice?.delta?.content ? filter.push(choice.delta.content) : "";
+
+        if (spoken) {
+          controller.enqueue(encoder.encode(spoken));
+        }
+      };
+
+      try {
+        if (!first.done) {
+          take(first.value);
+        }
+
+        for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
+          take(next.value);
         }
       } catch {
         // Si el modelo corta a medias, entregamos lo que alcanzo a decir.
+        truncated = true;
+      }
+
+      const rest = filter.end(truncated);
+
+      if (rest) {
+        controller.enqueue(encoder.encode(rest));
       }
 
       controller.close();
@@ -103,6 +137,7 @@ export async function POST(request: Request) {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
+      "X-Vera-Model": model,
     },
   });
 }
