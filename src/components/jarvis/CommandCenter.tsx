@@ -71,6 +71,32 @@ type ChatTurn = { role: "user" | "assistant"; content: string };
 
 /** Silencio que cierra tu frase sin esperar a que Chrome la de por terminada. */
 const END_OF_SPEECH_MS = 800;
+/** Tras un segmento final se espera poco, por si la frase sigue en otro segmento. */
+const AFTER_FINAL_MS = 300;
+/**
+ * Si llega otra frase por voz antes de que Vera empiece a contestar la
+ * anterior, casi siempre es la misma frase partida por el reconocedor: se unen.
+ */
+const MERGE_VOICE_WITHIN_MS = 3000;
+
+type InputSource = "voice" | "typed";
+
+/** Une un pedazo y la frase completa sin repetir palabras. */
+function mergeUtterances(previous: string, next: string) {
+  const a = previous.trim();
+  const b = next.trim();
+  const lower = (text: string) => text.toLowerCase();
+
+  if (lower(b).includes(lower(a))) {
+    return b;
+  }
+
+  if (lower(a).includes(lower(b))) {
+    return a;
+  }
+
+  return `${a} ${b}`;
+}
 
 const VOICE_STORAGE_KEY = "vera.voice";
 
@@ -187,12 +213,21 @@ export function CommandCenter() {
   const listeningRef = useRef(false);
   // El micro se pausa mientras Vera habla para que no se escuche a si misma.
   const pausedForSpeechRef = useRef(false);
-  const handledResultsRef = useRef(new Set<number>());
+  // Segmentos de lo que estas diciendo; Chrome puede partir una frase en varios.
+  const segmentsRef = useRef(new Map<number, string>());
+  const handledUpToRef = useRef(-1);
+  const lastVoiceTurnRef = useRef<{
+    text: string;
+    at: number;
+    operatorId: string;
+    replyId: string;
+    answered: boolean;
+  } | null>(null);
   const silenceTimerRef = useRef(0);
   const replyAbortRef = useRef<AbortController | null>(null);
   const conversationRef = useRef<ChatTurn[]>([]);
   const brainNoticeShownRef = useRef(false);
-  const handleInputRef = useRef<(text: string) => void>(() => {});
+  const handleInputRef = useRef<(text: string, source: InputSource) => void>(() => {});
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   const clock = useClock();
@@ -305,10 +340,23 @@ export function CommandCenter() {
   }, []);
 
   const handleInput = useCallback(
-    async (rawText: string) => {
-      const text = rawText.trim();
+    async (rawText: string, source: InputSource = "typed") => {
+      let text = rawText.trim();
 
       if (!text) {
+        return;
+      }
+
+      const previous = lastVoiceTurnRef.current;
+      const splitTurn =
+        source === "voice" &&
+        previous !== null &&
+        !previous.answered &&
+        Date.now() - previous.at < MERGE_VOICE_WITHIN_MS;
+
+      if (splitTurn && mergeUtterances(previous.text, text).toLowerCase() === previous.text.toLowerCase()) {
+        // El reconocedor re-entrego la misma frase: su respuesta ya viene en camino.
+        setInterim("");
         return;
       }
 
@@ -318,9 +366,19 @@ export function CommandCenter() {
       window.clearTimeout(silenceTimerRef.current);
       setInterim("");
 
+      if (splitTurn && previous) {
+        // Era la misma frase partida: se reemplaza el pedazo por la frase unida.
+        text = mergeUtterances(previous.text, text);
+        setMessages((current) =>
+          current.filter((message) => message.id !== previous.operatorId && message.id !== previous.replyId),
+        );
+      }
+
+      lastVoiceTurnRef.current = null;
+      const operatorId = `u-${Date.now()}`;
       setMessages((current) => [
         ...current,
-        { id: `u-${Date.now()}`, role: "operator", text, time: clockNow() },
+        { id: operatorId, role: "operator", text, time: clockNow() },
       ]);
 
       const action = detectAction(text);
@@ -356,6 +414,8 @@ export function CommandCenter() {
 
       const replyId = `a-${Date.now()}`;
       let reply = "";
+      const turn = { text, at: Date.now(), operatorId, replyId, answered: false };
+      lastVoiceTurnRef.current = source === "voice" ? turn : null;
 
       setMessages((current) => [
         ...current,
@@ -363,6 +423,7 @@ export function CommandCenter() {
       ]);
 
       const append = (chunk: string) => {
+        turn.answered = true;
         reply += chunk;
         const snapshot = reply;
         setMessages((current) =>
@@ -422,6 +483,10 @@ export function CommandCenter() {
           }
         } catch (error) {
           if (controller.signal.aborted) {
+            // Si la interrumpieron antes de decir algo, no dejamos una fila vacia.
+            setMessages((current) =>
+              current.filter((message) => message.id !== replyId || message.text.trim()),
+            );
             return;
           }
 
@@ -471,43 +536,56 @@ export function CommandCenter() {
   );
 
   useEffect(() => {
-    handleInputRef.current = (text) => void handleInput(text);
+    handleInputRef.current = (text, source) => void handleInput(text, source);
   }, [handleInput]);
 
   const startListening = useCallback(() => {
     setNotice(null);
 
-    const finalize = (index: number, transcript: string) => {
-      window.clearTimeout(silenceTimerRef.current);
+    const utterance = () =>
+      [...segmentsRef.current.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([, transcript]) => transcript)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
 
-      if (handledResultsRef.current.has(index) || !transcript) {
+    // Manda todo lo dicho hasta ahora como una sola orden.
+    const finalize = () => {
+      window.clearTimeout(silenceTimerRef.current);
+      const text = utterance();
+      const indexes = [...segmentsRef.current.keys()];
+
+      if (indexes.length === 0) {
         return;
       }
 
-      handledResultsRef.current.add(index);
-      handleInputRef.current(transcript);
+      handledUpToRef.current = Math.max(handledUpToRef.current, ...indexes);
+      segmentsRef.current = new Map();
+
+      if (text) {
+        handleInputRef.current(text, "voice");
+      }
     };
 
     if (!recognizerRef.current) {
       recognizerRef.current = createRecognizer({
         onStart: () => {
-          handledResultsRef.current = new Set();
+          // Cada sesion nueva reinicia los indices de resultados.
+          segmentsRef.current = new Map();
+          handledUpToRef.current = -1;
         },
         onResult: (result) => {
-          if (handledResultsRef.current.has(result.index)) {
+          if (result.index <= handledUpToRef.current) {
             return;
           }
 
-          if (result.isFinal) {
-            finalize(result.index, result.transcript);
-            return;
-          }
-
-          setInterim(result.transcript);
+          segmentsRef.current.set(result.index, result.transcript);
+          setInterim(utterance());
           window.clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = window.setTimeout(
-            () => finalize(result.index, result.transcript),
-            END_OF_SPEECH_MS,
+            finalize,
+            result.isFinal ? AFTER_FINAL_MS : END_OF_SPEECH_MS,
           );
         },
         onError: (message) => {
@@ -876,7 +954,7 @@ export function CommandCenter() {
                 className="mt-3 flex items-center gap-2 border border-[var(--hud-line)] px-2"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void handleInput(draft);
+                  void handleInput(draft, "typed");
                   setDraft("");
                 }}
               >

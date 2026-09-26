@@ -354,9 +354,10 @@ export type QueueOptions = {
 type QueueItem = { text: string; audio: HTMLAudioElement | null };
 
 /**
- * Cola de frases. Con Fish, cada frase se pide en cuanto llega (el navegador la
- * va bajando) y se reproduce en orden; si Fish falla, esa y las siguientes van
- * con la voz del navegador.
+ * Cola de frases. Con Fish se generan solo la frase que suena y la siguiente:
+ * si se piden todas a la vez compiten y la primera, la que decide cuanto
+ * esperas, tarda mas. Si Fish falla, esa y las siguientes van con la voz del
+ * navegador.
  */
 export class SpeechQueue {
   /** Solo una cola suena a la vez; una nueva calla a la anterior. */
@@ -384,14 +385,23 @@ export class SpeechQueue {
       return;
     }
 
-    const audio = this.useBrowser ? null : new Audio(`/api/voice/tts?text=${encodeURIComponent(text)}`);
-
-    if (audio) {
-      audio.preload = "auto";
-    }
-
-    this.items.push({ text, audio });
+    this.items.push({ text, audio: this.useBrowser ? null : new Audio() });
     this.next();
+    this.prefetchNext();
+  }
+
+  /** Empieza a generar el audio de una frase (solo la que suena y la siguiente). */
+  private load(item: QueueItem | undefined) {
+    if (item?.audio && !item.audio.getAttribute("src")) {
+      item.audio.preload = "auto";
+      item.audio.src = `/api/voice/tts?text=${encodeURIComponent(item.text)}`;
+    }
+  }
+
+  private prefetchNext() {
+    if (this.playing) {
+      this.load(this.items[0]);
+    }
   }
 
   finish() {
@@ -440,7 +450,9 @@ export class SpeechQueue {
     };
 
     if (item.audio && !this.useBrowser) {
+      this.load(item);
       this.playFish(item, done);
+      this.prefetchNext();
     } else {
       this.playBrowser(item.text, done);
     }
