@@ -19,7 +19,9 @@ Gemini y otros); si uno se satura, salta al siguiente.
 
 - `FREELLMAPI_API_KEY`: la llave unificada (empieza con `freellmapi-`), en la
   página Keys de su panel.
-- `FREELLMAPI_BASE_URL`: `http://localhost:3001/v1` si lo corres en tu Mac.
+- `FREELLMAPI_BASE_URL`: con la app de escritorio, `http://127.0.0.1:31415/v1`;
+  con Docker, el one-liner o `npm run dev`, `http://127.0.0.1:3001/v1`. Si no
+  responde ahí, Vera prueba sola los dos puertos.
 - `FREELLMAPI_MODEL`: `auto:fast` prioriza velocidad; `auto:smart`, calidad.
 
 FreeLLMAPI tiene que estar prendido mientras hablas con Vera.

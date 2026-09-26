@@ -6,13 +6,16 @@ import type {
 } from "openai/resources/chat/completions";
 import { NextResponse } from "next/server";
 
-import { getBrainConfig, type BrainConfig } from "@/lib/jarvis/keys";
+import { getBrainConfig, LOCAL_FREELLMAPI_URLS, type BrainConfig } from "@/lib/jarvis/keys";
 import { buildSystemPrompt } from "@/lib/jarvis/persona";
 import { createSpokenFilter } from "@/lib/jarvis/spokenFilter";
 
 export const dynamic = "force-dynamic";
 
 const MAX_TURNS = 12;
+
+// Direccion local de FreeLLMAPI que respondio la ultima vez, por URL configurada.
+const foundLocalURL = new Map<string, string>();
 const MAX_TURN_LENGTH = 1200;
 
 type ChatTurn = { role: "user" | "assistant"; content: string };
@@ -51,17 +54,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Falta el mensaje para Vera." }, { status: 400 });
   }
 
-  const client = new OpenAI({
-    apiKey: config.apiKey,
-    baseURL: config.baseURL,
-    maxRetries: 0,
-    timeout: 25_000,
-    defaultHeaders: {
-      "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-      "X-Title": "Vox SDR IA Agent",
-    },
-  });
-
   const params = {
     model: config.model,
     stream: true,
@@ -73,21 +65,55 @@ export async function POST(request: Request) {
     ...(config.provider === "openrouter" ? { reasoning: { effort: "low", exclude: true } } : {}),
   } as ChatCompletionCreateParamsStreaming;
 
-  let stream: Stream<ChatCompletionChunk>;
-  let first: IteratorResult<ChatCompletionChunk>;
-  let iterator: AsyncIterator<ChatCompletionChunk>;
+  let stream: Stream<ChatCompletionChunk> | undefined;
+  let first: IteratorResult<ChatCompletionChunk> | undefined;
+  let iterator: AsyncIterator<ChatCompletionChunk> | undefined;
+  let lastError: unknown;
 
-  try {
-    stream = await client.chat.completions.create(params, { signal: request.signal });
-    iterator = stream[Symbol.asyncIterator]();
-    // El primer pedazo dice que modelo contesto de verdad (openrouter/free elige uno).
-    first = await iterator.next();
-  } catch (error) {
-    const status = error instanceof OpenAI.APIError && error.status ? error.status : 502;
-    return NextResponse.json({ error: describeBrainError(error, config) }, { status });
+  for (const baseURL of candidateURLs(config)) {
+    try {
+      const client = new OpenAI({
+        apiKey: config.apiKey,
+        baseURL,
+        maxRetries: 0,
+        timeout: 25_000,
+        defaultHeaders: {
+          "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+          "X-Title": "Vox SDR IA Agent",
+        },
+      });
+
+      stream = await client.chat.completions.create(params, { signal: request.signal });
+      iterator = stream[Symbol.asyncIterator]();
+      // El primer pedazo dice que modelo contesto de verdad (auto elige uno).
+      first = await iterator.next();
+
+      if (baseURL !== config.baseURL && foundLocalURL.get(config.baseURL) !== baseURL) {
+        foundLocalURL.set(config.baseURL, baseURL);
+        console.log(
+          `[vera] FreeLLMAPI no respondio en ${config.baseURL}; lo encontre en ${baseURL}. Pon esa direccion en ${config.keysFile}.`,
+        );
+      }
+
+      break;
+    } catch (error) {
+      lastError = error;
+
+      // Solo se prueba la siguiente direccion si esta ni siquiera contesto.
+      if (!(error instanceof OpenAI.APIConnectionError) || request.signal.aborted) {
+        break;
+      }
+    }
   }
 
-  const model = first.done ? config.model : first.value.model || config.model;
+  if (!stream || !iterator || !first) {
+    const status = lastError instanceof OpenAI.APIError && lastError.status ? lastError.status : 502;
+    return NextResponse.json({ error: describeBrainError(lastError, config) }, { status });
+  }
+
+  const opened = { stream, iterator, first };
+
+  const model = opened.first.done ? config.model : opened.first.value.model || config.model;
   console.log(`[vera] respondio ${model} via ${config.label}`);
 
   const encoder = new TextEncoder();
@@ -112,11 +138,11 @@ export async function POST(request: Request) {
       };
 
       try {
-        if (!first.done) {
-          take(first.value);
+        if (!opened.first.done) {
+          take(opened.first.value);
         }
 
-        for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
+        for (let next = await opened.iterator.next(); !next.done; next = await opened.iterator.next()) {
           take(next.value);
         }
       } catch {
@@ -133,7 +159,7 @@ export async function POST(request: Request) {
       controller.close();
     },
     cancel() {
-      stream.controller.abort();
+      opened.stream.controller.abort();
     },
   });
 
@@ -144,6 +170,33 @@ export async function POST(request: Request) {
       "X-Vera-Model": model,
     },
   });
+}
+
+/**
+ * Direcciones a probar. Para un FreeLLMAPI local, si la configurada no contesta
+ * se prueban los puertos conocidos (app de escritorio y Docker/terminal).
+ */
+function candidateURLs(config: BrainConfig) {
+  if (config.provider !== "freellmapi") {
+    return [config.baseURL];
+  }
+
+  let host = "";
+
+  try {
+    host = new URL(config.baseURL).hostname;
+  } catch {
+    return [config.baseURL];
+  }
+
+  if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(host)) {
+    return [config.baseURL];
+  }
+
+  const remembered = foundLocalURL.get(config.baseURL);
+  const asIPv4 = config.baseURL.replace("//localhost", "//127.0.0.1");
+
+  return [...new Set([remembered, config.baseURL, asIPv4, ...LOCAL_FREELLMAPI_URLS].filter(Boolean))] as string[];
 }
 
 function sanitizeHistory(raw: unknown): ChatTurn[] {
@@ -169,7 +222,7 @@ function describeBrainError(error: unknown, config: BrainConfig) {
 
   if (error instanceof OpenAI.APIConnectionError) {
     if (config.provider === "freellmapi") {
-      return `No pude conectar con FreeLLMAPI en ${config.baseURL}. Si lo corres en tu computadora, revisa que esté prendido; si usas una versión en la nube, pon su dirección en FREELLMAPI_BASE_URL dentro de ${keysFile}. Mientras, respondo con frases fijas.`;
+      return `No encontré FreeLLMAPI prendido (probé ${config.baseURL} y los puertos de la app de escritorio y de Docker). Abre la app de FreeLLMAPI; si su dirección es otra, cópiala de su menú y ponla en FREELLMAPI_BASE_URL dentro de ${keysFile}, terminada en /v1. Mientras, respondo con frases fijas.`;
     }
 
     return `No pude conectar con ${label}. Revisa tu internet; mientras, respondo con frases fijas.`;

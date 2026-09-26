@@ -10,9 +10,12 @@ const KEYS_DIR = join(process.cwd(), "llaves");
 
 export const DEFAULT_FISH_MODEL = "s2.1-pro-free";
 export const DEFAULT_BRAIN_MODEL = "openrouter/free";
-// FreeLLMAPI corre en tu computadora por defecto. "auto:fast" rota entre
-// proveedores gratuitos priorizando velocidad, que es lo que importa en voz.
-export const DEFAULT_FREELLMAPI_URL = "http://localhost:3001/v1";
+// FreeLLMAPI corre en tu computadora. La app de escritorio (Mac/Windows) usa
+// el puerto 31415; Docker, el one-liner y `npm run dev` usan el 3001. Va con
+// 127.0.0.1 porque la app solo escucha en IPv4 y en Node "localhost" puede
+// resolver a IPv6 (::1). "auto:fast" prioriza velocidad, que es lo que importa en voz.
+export const DEFAULT_FREELLMAPI_URL = "http://127.0.0.1:31415/v1";
+export const LOCAL_FREELLMAPI_URLS = [DEFAULT_FREELLMAPI_URL, "http://127.0.0.1:3001/v1"];
 export const DEFAULT_FREELLMAPI_MODEL = "auto:fast";
 
 function clean(value: string) {

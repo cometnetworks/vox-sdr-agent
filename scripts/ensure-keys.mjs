@@ -16,9 +16,9 @@ FISH_AUDIO_VOICE_ID=
 # Si esta llave existe, Vera piensa con FreeLLMAPI en vez de OpenRouter.
 FREELLMAPI_API_KEY=
 
-# Donde corre FreeLLMAPI. En tu computadora: http://localhost:3001/v1
-# Si usas una version en la nube, pon aqui su direccion (termina en /v1).
-FREELLMAPI_BASE_URL=http://localhost:3001/v1
+# Donde corre FreeLLMAPI (termina en /v1). App de escritorio: http://127.0.0.1:31415/v1
+# Docker, one-liner o npm run dev: http://127.0.0.1:3001/v1
+FREELLMAPI_BASE_URL=http://127.0.0.1:31415/v1
 
 # "auto:fast" rota entre proveedores gratuitos priorizando velocidad (ideal para voz).
 # Otras opciones: "auto" o "auto:smart" (mas listo, mas lento).
