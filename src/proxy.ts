@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 /**
  * Contrasena de acceso para todo el sitio (paginas y APIs) cuando esta en
@@ -9,8 +9,38 @@ import type { NextRequest } from "next/server";
  * - Sin VERA_PASSWORD en tu computadora: abierto, como siempre.
  * - Sin VERA_PASSWORD en produccion fuera de localhost: bloqueado, para que un
  *   olvido no deje el sitio publico.
+ *
+ * Con VERA_STANDALONE=true (el proyecto de Netlify solo de Vera) la entrada "/"
+ * abre directo el command center en vez del dashboard.
  */
 export function proxy(request: NextRequest) {
+  const denied = checkAccess(request);
+
+  if (denied) {
+    return denied;
+  }
+
+  if (process.env.VERA_STANDALONE === "true" && request.nextUrl.pathname === "/") {
+    const response = NextResponse.redirect(publicUrl(request, "/jarvis"), 307);
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  }
+}
+
+/**
+ * URL absoluta con el dominio que pidio el visitante. Next exige Location
+ * absoluta, y request.url puede traer la direccion interna del servidor.
+ */
+function publicUrl(request: NextRequest, path: string) {
+  const first = (name: string) => request.headers.get(name)?.split(",")[0].trim();
+  const host = first("x-forwarded-host") || first("host");
+  const protocol = first("x-forwarded-proto") || request.nextUrl.protocol.replace(":", "");
+
+  return host ? `${protocol}://${host}${path}` : new URL(path, request.url).toString();
+}
+
+/** Regresa la respuesta de rechazo, o nada si la visita puede pasar. */
+function checkAccess(request: NextRequest): Response | undefined {
   const password = process.env.VERA_PASSWORD;
 
   if (!password) {
