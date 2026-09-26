@@ -1,7 +1,8 @@
 /**
- * Cerebro local del prototipo. No llama a ningun modelo: interpreta la orden
- * hablada con reglas simples sobre los datos del HUD para que la demo funcione
- * sin llaves ni backend.
+ * Cerebro local de Vera. Hace dos cosas:
+ *   - detectAction: reacciona al instante en el HUD (iluminar un panel,
+ *     limpiar, silencio), piense o no con IA.
+ *   - respond: frases fijas de respaldo cuando no hay IA o la IA falla.
  */
 
 import {
@@ -35,6 +36,50 @@ function matches(input: string, terms: string[]) {
   return terms.some((term) => input.includes(term));
 }
 
+const TERMS = {
+  mute: ["silencio", "callate", "guarda silencio", "para de hablar"],
+  clear: ["limpia", "borra", "reinicia la consola", "clear"],
+  hello: ["hola", "buenos dias", "buenas tardes", "quien eres", "presentate"],
+  status: ["estado", "status", "como vamos", "resumen", "reporte"],
+  prospects: ["prospecto", "cuenta", "base", "lead"],
+  directives: ["directiva", "tarea", "pendiente", "prioridad", "que sigue"],
+  trail: ["evento", "bitacora", "historial", "linea de tiempo", "log"],
+  goal: ["reunion", "meta", "objetivo", "cuanto falta"],
+  calls: ["llamada", "llamar", "twilio", "telefono"],
+  thanks: ["gracias", "listo", "eso es todo"],
+};
+
+/** Reaccion inmediata del HUD a lo que dijo el operador. */
+export function detectAction(rawInput: string): BrainAction {
+  const input = normalize(rawInput);
+
+  if (matches(input, TERMS.mute)) {
+    return { kind: "mute" };
+  }
+
+  if (matches(input, TERMS.clear)) {
+    return { kind: "clear" };
+  }
+
+  if (matches(input, TERMS.status) || matches(input, TERMS.prospects)) {
+    return { kind: "focus", panel: "vitals" };
+  }
+
+  if (matches(input, TERMS.directives)) {
+    return { kind: "focus", panel: "directives" };
+  }
+
+  if (matches(input, TERMS.trail)) {
+    return { kind: "focus", panel: "trail" };
+  }
+
+  if (matches(input, TERMS.goal) || matches(input, TERMS.hello)) {
+    return { kind: "focus", panel: "core" };
+  }
+
+  return { kind: "none" };
+}
+
 function firstName() {
   return hudIdentity.operator.split(" ")[0];
 }
@@ -59,29 +104,29 @@ export function respond(rawInput: string): BrainReply {
     return { text: "No alcancé a escucharte. ¿Me lo repites?", action: { kind: "none" } };
   }
 
-  if (matches(input, ["silencio", "callate", "guarda silencio", "para de hablar"])) {
+  if (matches(input, TERMS.mute)) {
     return { text: "Entendido. Me quedo en silencio.", action: { kind: "mute" } };
   }
 
-  if (matches(input, ["limpia", "borra", "reinicia la consola", "clear"])) {
+  if (matches(input, TERMS.clear)) {
     return { text: "Listo, consola limpia. Te sigo escuchando.", action: { kind: "clear" } };
   }
 
-  if (matches(input, ["hola", "buenos dias", "buenas tardes", "quien eres", "presentate"])) {
+  if (matches(input, TERMS.hello)) {
     return {
       text: `Hola, ${firstName()}. Soy ${hudIdentity.name}, tu ejecutiva de ventas con inteligencia artificial en ${hudIdentity.org}. Pregúntame por el estado del pipeline, los prospectos, las directivas o la bitácora.`,
       action: { kind: "focus", panel: "core" },
     };
   }
 
-  if (matches(input, ["estado", "status", "como vamos", "resumen", "reporte"])) {
+  if (matches(input, TERMS.status)) {
     return {
       text: `Vamos bien. Tenemos ${vitalValue("prospects")} prospectos activos y ${vitalValue("outreach")} mensajes enviados, con una tasa de respuesta del ${vitalValue("reply")}. Llevamos ${primaryDirective.value} de ${primaryDirective.target} reuniones agendadas.`,
       action: { kind: "focus", panel: "vitals" },
     };
   }
 
-  if (matches(input, ["prospecto", "cuenta", "base", "lead"])) {
+  if (matches(input, TERMS.prospects)) {
     const weekly = vitals.find((vital) => vital.id === "prospects")?.delta.replace(/[^\d]/g, "");
     return {
       text: `Tenemos ${vitalValue("prospects")} prospectos activos, y la base crece unos ${weekly} por semana. El análisis de hoy dejó tres cuentas calientes.`,
@@ -89,7 +134,7 @@ export function respond(rawInput: string): BrainReply {
     };
   }
 
-  if (matches(input, ["directiva", "tarea", "pendiente", "prioridad", "que sigue"])) {
+  if (matches(input, TERMS.directives)) {
     const [first, second, third] = directives.map((item) => item.spoken);
     return {
       text: `Tienes tres pendientes. Primero, ${first}. Después, ${second}. Y por último, ${third}.`,
@@ -97,7 +142,7 @@ export function respond(rawInput: string): BrainReply {
     };
   }
 
-  if (matches(input, ["evento", "bitacora", "historial", "linea de tiempo", "log"])) {
+  if (matches(input, TERMS.trail)) {
     const list = trail.map((item) => capitalize(item.spoken)).join(". ");
     return {
       text: `Esto es lo que pasó hoy. ${list}.`,
@@ -105,7 +150,7 @@ export function respond(rawInput: string): BrainReply {
     };
   }
 
-  if (matches(input, ["reunion", "meta", "objetivo", "cuanto falta"])) {
+  if (matches(input, TERMS.goal)) {
     const remaining = primaryDirective.target - primaryDirective.value;
     const weekly = primaryDirective.weekly.replace(/[^\d]/g, "");
     return {
@@ -114,14 +159,14 @@ export function respond(rawInput: string): BrainReply {
     };
   }
 
-  if (matches(input, ["llamada", "llamar", "twilio", "telefono"])) {
+  if (matches(input, TERMS.calls)) {
     return {
       text: "Todavía no hago llamadas reales. Primero hay que terminar las pruebas internas con Twilio, y que tú las apruebes.",
       action: { kind: "none" },
     };
   }
 
-  if (matches(input, ["gracias", "listo", "eso es todo"])) {
+  if (matches(input, TERMS.thanks)) {
     return { text: `A la orden, ${firstName()}. Aquí sigo.`, action: { kind: "none" } };
   }
 

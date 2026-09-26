@@ -1,29 +1,35 @@
 import { NextResponse } from "next/server";
 
-import { getFishConfig } from "@/lib/jarvis/fishConfig";
+import { getFishConfig } from "@/lib/jarvis/keys";
 
 export const dynamic = "force-dynamic";
 
-const FISH_TTS_ENDPOINT = "https://api.fish.audio/v1/tts";
 const MAX_TEXT_LENGTH = 800;
 
 /**
- * Proxy opcional de Fish Audio para el command center.
+ * Voz de Fish Audio para el command center.
  *
- * La llave se pega en llaves/fish-audio.txt (o en .env.local). Sin llave el HUD
- * habla con la voz del navegador; con llave cambia solo a Fish Audio.
+ * GET sin `text`: avisa si hay llave. GET con `?text=`: devuelve el audio en
+ * streaming, asi un <audio src=...> empieza a sonar antes de terminar de bajar.
+ * La llave se pega en llaves/fish-audio.txt (o en .env.local).
  */
-export async function GET() {
-  const config = await getFishConfig();
+export async function GET(request: Request) {
+  const text = new URL(request.url).searchParams.get("text");
 
-  return NextResponse.json({
-    available: Boolean(config.apiKey),
-    model: config.model,
-    hasVoice: Boolean(config.voiceId),
-  });
+  if (text === null) {
+    const config = await getFishConfig();
+
+    return NextResponse.json({
+      available: Boolean(config.apiKey),
+      model: config.model,
+      hasVoice: Boolean(config.voiceId),
+    });
+  }
+
+  return synthesize(text.trim(), request.signal);
 }
 
-export async function POST(request: Request) {
+async function synthesize(text: string, signal: AbortSignal) {
   const config = await getFishConfig();
 
   if (!config.apiKey) {
@@ -36,14 +42,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = (await request.json().catch(() => null)) as { text?: string } | null;
-  const text = body?.text?.trim();
-
   if (!text) {
     return NextResponse.json({ error: "Falta el texto a sintetizar." }, { status: 400 });
   }
 
-  const response = await fetch(FISH_TTS_ENDPOINT, {
+  const upstream = await fetch(`${config.baseURL}/v1/tts`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -53,20 +56,28 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       text: text.slice(0, MAX_TEXT_LENGTH),
       format: "mp3",
+      // "balanced" baja el tiempo al primer audio (~300 ms) para conversar.
+      latency: "balanced",
       reference_id: config.voiceId || undefined,
     }),
     cache: "no-store",
-  });
+    signal,
+  }).catch(() => null);
 
-  if (!response.ok) {
-    return NextResponse.json({ error: describeFishError(response.status) }, { status: response.status });
+  if (!upstream) {
+    return NextResponse.json(
+      { error: "No pude conectar con Fish Audio. Uso la voz del navegador." },
+      { status: 502 },
+    );
   }
 
-  const audio = await response.arrayBuffer();
+  if (!upstream.ok || !upstream.body) {
+    return NextResponse.json({ error: describeFishError(upstream.status) }, { status: upstream.status || 502 });
+  }
 
-  return new NextResponse(audio, {
+  return new Response(upstream.body, {
     headers: {
-      "Content-Type": "audio/mpeg",
+      "Content-Type": upstream.headers.get("content-type") || "audio/mpeg",
       "Cache-Control": "no-store",
     },
   });
@@ -89,5 +100,5 @@ function describeFishError(status: number) {
     return "Fish Audio llegó al límite de uso gratuito por ahora. Uso la voz del navegador.";
   }
 
-  return `Fish Audio fallo (${status}). Uso la voz del navegador.`;
+  return `Fish Audio falló (${status}). Uso la voz del navegador.`;
 }

@@ -7,12 +7,17 @@
  * Sintesis (TTS): dos proveedores intercambiables.
  *   - "browser": speechSynthesis nativo. Gratis y sin configuracion.
  *   - "fish": Fish Audio via /api/voice/tts. Solo se activa si el servidor
- *     tiene FISH_AUDIO_API_KEY; si no, el motor regresa al navegador.
+ *     tiene llave; si no, o si falla, el motor regresa al navegador.
+ *
+ * Para bajar la latencia, la respuesta se dice frase por frase (SpeechQueue):
+ * la primera frase suena mientras las siguientes todavia se generan.
  */
 
 export type TtsProvider = "browser" | "fish";
 
 export type SpeechResult = {
+  /** Posicion del resultado en la sesion; sirve para no procesarlo dos veces. */
+  index: number;
   transcript: string;
   isFinal: boolean;
 };
@@ -73,6 +78,8 @@ export type RecognizerHandlers = {
   onResult: (result: SpeechResult) => void;
   onError: (message: string) => void;
   onEnd: () => void;
+  /** Cada arranque de sesion reinicia los indices de resultados. */
+  onStart?: () => void;
   lang?: string;
 };
 
@@ -104,6 +111,7 @@ export function createRecognizer(handlers: RecognizerHandlers): Recognizer | nul
       }
 
       handlers.onResult({
+        index,
         transcript: alternative.transcript.trim(),
         isFinal: result.isFinal,
       });
@@ -114,7 +122,12 @@ export function createRecognizer(handlers: RecognizerHandlers): Recognizer | nul
     handlers.onError(describeRecognitionError(event.error));
   };
 
+  recognition.onstart = () => {
+    handlers.onStart?.();
+  };
+
   recognition.onend = () => {
+    running = false;
     handlers.onEnd();
   };
 
@@ -249,35 +262,13 @@ export function pickSpanishVoice(preferredName?: string): SpeechSynthesisVoice |
   return voices[0] ?? null;
 }
 
-let activeAudio: HTMLAudioElement | null = null;
-
-export function cancelSpeech() {
-  if (typeof window !== "undefined" && window.speechSynthesis) {
-    window.speechSynthesis.cancel();
-  }
-
-  if (activeAudio) {
-    activeAudio.pause();
-    activeAudio.src = "";
-    activeAudio = null;
-  }
-}
-
-export type SpeakOptions = {
-  provider: TtsProvider;
-  /** Nombre de la voz del navegador elegida; vacio = la mejor disponible. */
-  voiceName?: string;
-  onStart?: () => void;
-  onEnd?: () => void;
-  onFallback?: (reason: string) => void;
-};
-
 /**
  * Deja el texto listo para voz: lo que se lee bien en pantalla ("V.E.R.A.",
  * "1,240", "11.4%", "+180 /sem", "2h") suena mal si se pronuncia literal.
  */
 export function toSpeech(text: string) {
   return text
+    .replace(/[*_#`]+/g, "")
     .replace(/V\.E\.R\.A\./g, "Vera")
     .replace(/(\d),(\d{3})\b/g, "$1$2")
     .replace(/(\d+(?:\.\d+)?)\s?%/g, "$1 por ciento")
@@ -289,83 +280,270 @@ export function toSpeech(text: string) {
     .trim();
 }
 
-export async function speak(rawText: string, options: SpeakOptions) {
-  cancelSpeech();
+/**
+ * Corta texto que llega en pedazos (streaming) en frases completas. La primera
+ * se corta antes, en una coma si hace falta, para que la voz arranque pronto.
+ */
+export class SentenceSplitter {
+  private buffer = "";
+  private emitted = 0;
 
-  const text = toSpeech(rawText);
+  constructor(private readonly emit: (sentence: string) => void) {}
 
-  if (!text) {
-    return;
+  push(chunk: string) {
+    this.buffer += chunk;
+    this.drain(false);
   }
 
-  if (options.provider === "fish") {
-    try {
-      await speakWithFishAudio(text, options);
-      return;
-    } catch (error) {
-      options.onFallback?.(
-        error instanceof Error ? error.message : "Fish Audio no respondio. Uso la voz del navegador.",
-      );
+  flush() {
+    this.drain(true);
+  }
+
+  private drain(final: boolean) {
+    // Fin de frase seguido de espacio: "11.4" no corta, "Listo. Ahora" si.
+    const boundary = /[.!?…]+["»”)]*\s+/g;
+    let consumed = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = boundary.exec(this.buffer))) {
+      const end = match.index + match[0].length;
+      this.send(this.buffer.slice(consumed, end));
+      consumed = end;
+    }
+
+    this.buffer = this.buffer.slice(consumed);
+
+    const limit = this.emitted === 0 ? 90 : 180;
+
+    if (!final && this.buffer.length > limit) {
+      const cut = Math.max(this.buffer.lastIndexOf(", "), this.buffer.lastIndexOf("; "));
+
+      if (cut > 30) {
+        this.send(this.buffer.slice(0, cut + 1));
+        this.buffer = this.buffer.slice(cut + 2);
+      }
+    }
+
+    if (final) {
+      this.send(this.buffer);
+      this.buffer = "";
     }
   }
 
-  speakWithBrowser(text, options);
+  private send(piece: string) {
+    const sentence = piece.trim();
+
+    if (sentence) {
+      this.emitted += 1;
+      this.emit(sentence);
+    }
+  }
 }
 
-function speakWithBrowser(text: string, options: SpeakOptions) {
-  if (typeof window === "undefined" || !window.speechSynthesis) {
-    options.onEnd?.();
-    return;
+export type QueueOptions = {
+  provider: TtsProvider;
+  /** Nombre de la voz del navegador elegida; vacio = la mejor disponible. */
+  voiceName?: string;
+  /** Cuando empieza a sonar la primera frase. */
+  onStart?: () => void;
+  /** Cuando ya se dijo todo y no vienen mas frases. */
+  onIdle?: () => void;
+  onFallback?: (reason: string) => void;
+};
+
+type QueueItem = { text: string; audio: HTMLAudioElement | null };
+
+/**
+ * Cola de frases. Con Fish, cada frase se pide en cuanto llega (el navegador la
+ * va bajando) y se reproduce en orden; si Fish falla, esa y las siguientes van
+ * con la voz del navegador.
+ */
+export class SpeechQueue {
+  /** Solo una cola suena a la vez; una nueva calla a la anterior. */
+  static active: SpeechQueue | null = null;
+
+  private items: QueueItem[] = [];
+  private current: HTMLAudioElement | null = null;
+  private playing = false;
+  private finished = false;
+  private started = false;
+  private idle = false;
+  private cancelled = false;
+  private useBrowser: boolean;
+
+  constructor(private readonly options: QueueOptions) {
+    SpeechQueue.active?.cancel();
+    SpeechQueue.active = this;
+    this.useBrowser = options.provider !== "fish";
   }
 
-  const utterance = new SpeechSynthesisUtterance(text);
-  const voice = pickSpanishVoice(options.voiceName);
+  push(rawText: string) {
+    const text = toSpeech(rawText);
 
-  if (voice) {
-    utterance.voice = voice;
+    if (!text || this.cancelled) {
+      return;
+    }
+
+    const audio = this.useBrowser ? null : new Audio(`/api/voice/tts?text=${encodeURIComponent(text)}`);
+
+    if (audio) {
+      audio.preload = "auto";
+    }
+
+    this.items.push({ text, audio });
+    this.next();
   }
 
-  utterance.lang = voice?.lang ?? "es-MX";
-  // Tono y ritmo neutros: bajar el pitch hacia sonar la voz mas sintetica.
-  utterance.rate = 1;
-  utterance.pitch = 1;
+  finish() {
+    this.finished = true;
+    this.maybeIdle();
+  }
 
-  utterance.onstart = () => options.onStart?.();
-  utterance.onend = () => options.onEnd?.();
-  utterance.onerror = () => options.onEnd?.();
+  cancel() {
+    this.cancelled = true;
+    this.items.forEach((item) => item.audio?.removeAttribute("src"));
+    this.items = [];
 
-  window.speechSynthesis.speak(utterance);
+    if (this.current) {
+      this.current.pause();
+      this.current.removeAttribute("src");
+      this.current = null;
+    }
+
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
+    if (SpeechQueue.active === this) {
+      SpeechQueue.active = null;
+    }
+  }
+
+  private next() {
+    if (this.playing || this.cancelled) {
+      return;
+    }
+
+    const item = this.items.shift();
+
+    if (!item) {
+      this.maybeIdle();
+      return;
+    }
+
+    this.playing = true;
+
+    const done = () => {
+      this.current = null;
+      this.playing = false;
+      this.next();
+    };
+
+    if (item.audio && !this.useBrowser) {
+      this.playFish(item, done);
+    } else {
+      this.playBrowser(item.text, done);
+    }
+  }
+
+  private playFish(item: QueueItem, done: () => void) {
+    const audio = item.audio as HTMLAudioElement;
+    this.current = audio;
+
+    const fallBack = async () => {
+      if (this.cancelled || this.useBrowser) {
+        if (!this.cancelled) {
+          this.playBrowser(item.text, done);
+        }
+        return;
+      }
+
+      // Pedimos otra vez para leer el motivo del error y avisarlo en el HUD.
+      const reason = await fetch(audio.src, { cache: "no-store" })
+        .then((response) => response.json() as Promise<{ error?: string }>)
+        .then((body) => body.error)
+        .catch(() => undefined);
+
+      this.switchToBrowser();
+      this.options.onFallback?.(reason || "Fish Audio no respondió. Uso la voz del navegador.");
+
+      if (!this.cancelled) {
+        this.playBrowser(item.text, done);
+      }
+    };
+
+    audio.onplaying = () => this.markStarted();
+    audio.onended = done;
+    audio.onerror = () => void fallBack();
+    audio.play().catch(() => void fallBack());
+  }
+
+  private switchToBrowser() {
+    this.useBrowser = true;
+    this.items.forEach((queued) => {
+      queued.audio?.removeAttribute("src");
+      queued.audio = null;
+    });
+  }
+
+  private playBrowser(text: string, done: () => void) {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      done();
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voice = pickSpanishVoice(this.options.voiceName);
+
+    if (voice) {
+      utterance.voice = voice;
+    }
+
+    utterance.lang = voice?.lang ?? "es-MX";
+    // Tono y ritmo neutros: bajar el pitch hace sonar la voz mas sintetica.
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.onstart = () => this.markStarted();
+    utterance.onend = done;
+    utterance.onerror = done;
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  private markStarted() {
+    if (!this.started) {
+      this.started = true;
+      this.options.onStart?.();
+    }
+  }
+
+  private maybeIdle() {
+    if (this.finished && !this.playing && this.items.length === 0 && !this.idle && !this.cancelled) {
+      this.idle = true;
+
+      if (SpeechQueue.active === this) {
+        SpeechQueue.active = null;
+      }
+
+      this.options.onIdle?.();
+    }
+  }
 }
 
-async function speakWithFishAudio(text: string, options: SpeakOptions) {
-  const response = await fetch("/api/voice/tts", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-    cache: "no-store",
-  });
+export function cancelSpeech() {
+  SpeechQueue.active?.cancel();
 
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error || "Fish Audio no esta configurado en el servidor.");
+  if (typeof window !== "undefined" && window.speechSynthesis) {
+    window.speechSynthesis.cancel();
   }
+}
 
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
-  activeAudio = audio;
-
-  audio.onplay = () => options.onStart?.();
-  audio.onended = () => {
-    URL.revokeObjectURL(url);
-    activeAudio = null;
-    options.onEnd?.();
-  };
-  audio.onerror = () => {
-    URL.revokeObjectURL(url);
-    activeAudio = null;
-    options.onEnd?.();
-  };
-
-  await audio.play();
+/** Dice un texto completo de una vez (por ejemplo, la frase de prueba de voz). */
+export function speak(text: string, options: QueueOptions) {
+  const queue = new SpeechQueue(options);
+  const splitter = new SentenceSplitter((sentence) => queue.push(sentence));
+  splitter.push(text);
+  splitter.flush();
+  queue.finish();
+  return queue;
 }

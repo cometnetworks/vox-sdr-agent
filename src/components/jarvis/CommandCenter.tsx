@@ -25,7 +25,7 @@ import {
 
 import { CoreSphere, type CoreState } from "@/components/jarvis/CoreSphere";
 import { Sparkline } from "@/components/jarvis/Sparkline";
-import { respond, type BrainAction } from "@/lib/jarvis/brain";
+import { detectAction, respond, type BrainAction } from "@/lib/jarvis/brain";
 import {
   directives,
   hudCards,
@@ -42,7 +42,9 @@ import {
   getServerVoicesSnapshot,
   getVoicesSnapshot,
   isSpeechRecognitionSupported,
+  SentenceSplitter,
   speak,
+  SpeechQueue,
   subscribeVoices,
   type Recognizer,
   type TtsProvider,
@@ -60,6 +62,13 @@ type Message = {
 type PanelId = "vitals" | "directives" | "trail" | "core";
 
 type FishStatus = "checking" | "ready" | "missing";
+
+type BrainStatus = "checking" | "ready" | "missing";
+
+type ChatTurn = { role: "user" | "assistant"; content: string };
+
+/** Silencio que cierra tu frase sin esperar a que Chrome la de por terminada. */
+const END_OF_SPEECH_MS = 800;
 
 const VOICE_STORAGE_KEY = "vera.voice";
 
@@ -153,6 +162,7 @@ export function CommandCenter() {
   const [muted, setMuted] = useState(false);
   const [provider, setProvider] = useState<TtsProvider>("browser");
   const [fishStatus, setFishStatus] = useState<FishStatus>("checking");
+  const [brainStatus, setBrainStatus] = useState<BrainStatus>("checking");
   // El selector de voz no se pinta en el servidor, asi que leer aqui no rompe la hidratacion.
   const [voiceName, setVoiceName] = useState(() =>
     typeof window === "undefined" ? "" : readStoredVoice(),
@@ -163,7 +173,14 @@ export function CommandCenter() {
 
   const recognizerRef = useRef<Recognizer | null>(null);
   const listeningRef = useRef(false);
-  const resumeAfterSpeechRef = useRef(false);
+  // El micro se pausa mientras Vera habla para que no se escuche a si misma.
+  const pausedForSpeechRef = useRef(false);
+  const handledResultsRef = useRef(new Set<number>());
+  const silenceTimerRef = useRef(0);
+  const replyAbortRef = useRef<AbortController | null>(null);
+  const conversationRef = useRef<ChatTurn[]>([]);
+  const brainNoticeShownRef = useRef(false);
+  const handleInputRef = useRef<(text: string) => void>(() => {});
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   const clock = useClock();
@@ -179,6 +196,27 @@ export function CommandCenter() {
     const timer = window.setTimeout(() => setFocused(null), 2600);
     return () => window.clearTimeout(timer);
   }, [focused]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/vera/chat", { cache: "no-store" })
+      .then((response) => response.json() as Promise<{ available?: boolean }>)
+      .then((body) => {
+        if (!cancelled) {
+          setBrainStatus(body.available ? "ready" : "missing");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBrainStatus("missing");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -216,100 +254,229 @@ export function CommandCenter() {
   }, [messages, interim]);
 
   const stopListening = useCallback(() => {
+    window.clearTimeout(silenceTimerRef.current);
     listeningRef.current = false;
     setListening(false);
     setInterim("");
     recognizerRef.current?.stop();
   }, []);
 
-  const applyAction = useCallback(
-    (action: BrainAction) => {
-      if (action.kind === "focus") {
-        setFocused(action.panel);
-        return;
-      }
+  const applyAction = useCallback((action: BrainAction) => {
+    if (action.kind === "focus") {
+      setFocused(action.panel);
+      return;
+    }
 
-      if (action.kind === "clear") {
-        setMessages([bootMessage]);
-        setOpenCards(hudCards.map((card) => card.id));
-        return;
-      }
+    if (action.kind === "clear") {
+      setMessages([bootMessage]);
+      setOpenCards(hudCards.map((card) => card.id));
+      conversationRef.current = [];
+      return;
+    }
 
-      if (action.kind === "mute") {
-        setMuted(true);
-        cancelSpeech();
-      }
-    },
-    [],
-  );
+    if (action.kind === "mute") {
+      setMuted(true);
+      cancelSpeech();
+    }
+  }, []);
+
+  /** Vuelve a escuchar cuando Vera termina de hablar. */
+  const settle = useCallback(() => {
+    const resume = pausedForSpeechRef.current && listeningRef.current;
+    pausedForSpeechRef.current = false;
+    setCoreState(listeningRef.current ? "listening" : "idle");
+
+    if (resume) {
+      recognizerRef.current?.start();
+    }
+  }, []);
 
   const handleInput = useCallback(
-    (rawText: string) => {
+    async (rawText: string) => {
       const text = rawText.trim();
 
       if (!text) {
         return;
       }
 
+      // Una orden nueva interrumpe la respuesta que estuviera en curso.
+      replyAbortRef.current?.abort();
+      cancelSpeech();
+      window.clearTimeout(silenceTimerRef.current);
       setInterim("");
+
       setMessages((current) => [
         ...current,
         { id: `u-${Date.now()}`, role: "operator", text, time: clockNow() },
       ]);
+
+      const action = detectAction(text);
+      applyAction(action);
+
+      if (action.kind === "mute" || action.kind === "clear") {
+        const reply = respond(text).text;
+        setMessages((current) => [
+          ...(action.kind === "clear" ? [bootMessage] : current),
+          { id: `a-${Date.now()}`, role: "agent", text: reply, time: clockNow() },
+        ]);
+        setCoreState(listeningRef.current ? "listening" : "idle");
+        return;
+      }
+
+      if (listeningRef.current) {
+        pausedForSpeechRef.current = true;
+        recognizerRef.current?.stop();
+      }
+
       setCoreState("thinking");
 
-      const reply = respond(text);
+      const queue = muted
+        ? null
+        : new SpeechQueue({
+            provider,
+            voiceName,
+            onStart: () => setCoreState("speaking"),
+            onFallback: (reason) => setNotice(reason),
+            onIdle: settle,
+          });
+      const splitter = new SentenceSplitter((sentence) => queue?.push(sentence));
 
-      window.setTimeout(() => {
-        setMessages((current) => [
-          ...current,
-          { id: `j-${Date.now()}`, role: "agent", text: reply.text, time: clockNow() },
-        ]);
-        applyAction(reply.action);
+      const replyId = `a-${Date.now()}`;
+      let reply = "";
 
-        const willMute = reply.action.kind === "mute";
+      setMessages((current) => [
+        ...current,
+        { id: replyId, role: "agent", text: "", time: clockNow() },
+      ]);
 
-        if (muted || willMute) {
-          setCoreState(listeningRef.current ? "listening" : "idle");
-          return;
-        }
+      const append = (chunk: string) => {
+        reply += chunk;
+        const snapshot = reply;
+        setMessages((current) =>
+          current.map((message) => (message.id === replyId ? { ...message, text: snapshot } : message)),
+        );
+        splitter.push(chunk);
+      };
 
-        resumeAfterSpeechRef.current = listeningRef.current;
+      if (brainStatus === "ready") {
+        const controller = new AbortController();
+        replyAbortRef.current = controller;
 
-        if (listeningRef.current) {
-          recognizerRef.current?.stop();
-        }
+        try {
+          const response = await fetch("/api/vera/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: [...conversationRef.current, { role: "user", content: text }],
+            }),
+            signal: controller.signal,
+          });
 
-        void speak(reply.text, {
-          provider,
-          voiceName,
-          onStart: () => setCoreState("speaking"),
-          onFallback: (reason) => setNotice(reason),
-          onEnd: () => {
-            setCoreState(resumeAfterSpeechRef.current ? "listening" : "idle");
+          if (!response.ok || !response.body) {
+            const body = (await response.json().catch(() => null)) as { error?: string } | null;
+            throw new Error(body?.error || "El cerebro de IA no respondió; contesto con frases fijas.");
+          }
 
-            if (resumeAfterSpeechRef.current && listeningRef.current) {
-              recognizerRef.current?.start();
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+
+          for (;;) {
+            const { done, value } = await reader.read();
+
+            if (done) {
+              break;
             }
-          },
-        });
-      }, 420);
+
+            const chunk = decoder.decode(value, { stream: true });
+
+            if (chunk) {
+              append(chunk);
+            }
+          }
+
+          const tail = decoder.decode();
+
+          if (tail) {
+            append(tail);
+          }
+        } catch (error) {
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          setNotice(error instanceof Error ? error.message : String(error));
+        } finally {
+          if (replyAbortRef.current === controller) {
+            replyAbortRef.current = null;
+          }
+        }
+      } else if (brainStatus === "missing" && !brainNoticeShownRef.current) {
+        brainNoticeShownRef.current = true;
+        setNotice(
+          "Vera responde con frases fijas. Para que piense, pega tu llave de OpenRouter en llaves/openrouter.txt y recarga la página.",
+        );
+      }
+
+      if (!reply.trim()) {
+        append(respond(text).text);
+      }
+
+      splitter.flush();
+
+      conversationRef.current = [
+        ...conversationRef.current,
+        { role: "user" as const, content: text },
+        { role: "assistant" as const, content: reply.trim() },
+      ].slice(-12);
+
+      if (queue) {
+        queue.finish();
+      } else {
+        settle();
+      }
     },
-    [applyAction, muted, provider, voiceName],
+    [applyAction, brainStatus, muted, provider, settle, voiceName],
   );
+
+  useEffect(() => {
+    handleInputRef.current = (text) => void handleInput(text);
+  }, [handleInput]);
 
   const startListening = useCallback(() => {
     setNotice(null);
 
+    const finalize = (index: number, transcript: string) => {
+      window.clearTimeout(silenceTimerRef.current);
+
+      if (handledResultsRef.current.has(index) || !transcript) {
+        return;
+      }
+
+      handledResultsRef.current.add(index);
+      handleInputRef.current(transcript);
+    };
+
     if (!recognizerRef.current) {
       recognizerRef.current = createRecognizer({
+        onStart: () => {
+          handledResultsRef.current = new Set();
+        },
         onResult: (result) => {
+          if (handledResultsRef.current.has(result.index)) {
+            return;
+          }
+
           if (result.isFinal) {
-            handleInput(result.transcript);
+            finalize(result.index, result.transcript);
             return;
           }
 
           setInterim(result.transcript);
+          window.clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = window.setTimeout(
+            () => finalize(result.index, result.transcript),
+            END_OF_SPEECH_MS,
+          );
         },
         onError: (message) => {
           setNotice(message);
@@ -318,7 +485,7 @@ export function CommandCenter() {
           setCoreState("idle");
         },
         onEnd: () => {
-          if (listeningRef.current && resumeAfterSpeechRef.current === false) {
+          if (listeningRef.current && !pausedForSpeechRef.current) {
             recognizerRef.current?.start();
           }
         },
@@ -336,7 +503,7 @@ export function CommandCenter() {
     setListening(true);
     setCoreState("listening");
     recognizerRef.current.start();
-  }, [handleInput]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -535,13 +702,15 @@ export function CommandCenter() {
             <Panel
               title="Consola de voz"
               className="flex-1"
-              tag={provider === "fish" ? "fish.audio" : "web.speech"}
+              tag={`${provider === "fish" ? "fish.audio" : "web.speech"} · ${
+                brainStatus === "ready" ? "ia" : "reglas"
+              }`}
               icon={<Mic className="size-3.5" />}
               bodyClassName="flex min-h-[280px] flex-1 flex-col"
             >
               <div
                 ref={transcriptRef}
-                className="hud-scroll min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
+                className="hud-scroll min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 lg:max-h-[46vh]"
               >
                 {messages.map((message) => (
                   <div key={message.id}>
@@ -653,7 +822,7 @@ export function CommandCenter() {
                         // Sin almacenamiento el cambio vale solo para esta visita.
                       }
 
-                      void speak("Hola, Miguel. Así sueno con esta voz.", { provider: "browser", voiceName: next });
+                      speak("Hola, Miguel. Así sueno con esta voz.", { provider: "browser", voiceName: next });
                     }}
                     aria-label="Voz del navegador"
                     className="h-9 min-w-0 flex-1 bg-transparent text-[10px] text-[#e6fffb] outline-none"
@@ -674,7 +843,7 @@ export function CommandCenter() {
                 className="mt-3 flex items-center gap-2 border border-[var(--hud-line)] px-2"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  handleInput(draft);
+                  void handleInput(draft);
                   setDraft("");
                 }}
               >
